@@ -24,7 +24,13 @@ pub enum AuditDecision {
 }
 
 pub trait AuditPolicy: Send + Sync {
-    fn decide(&self, scope: &ExecutionScope, action: &str, phase: ExecutionPhase, severity: Severity) -> AuditDecision;
+    fn decide(
+        &self,
+        scope: &ExecutionScope,
+        action: &str,
+        phase: ExecutionPhase,
+        severity: Severity,
+    ) -> AuditDecision;
 }
 
 #[derive(Debug)]
@@ -33,7 +39,11 @@ pub struct AuditError {
 }
 
 impl fmt::Display for AuditError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.message) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 impl Error for AuditError {}
 
 pub trait AuditSink: Send + Sync {
@@ -72,13 +82,23 @@ pub struct MinimumSeverityPolicy {
 }
 
 impl AuditPolicy for MinimumSeverityPolicy {
-    fn decide(&self, _: &ExecutionScope, _: &str, _: ExecutionPhase, severity: Severity) -> AuditDecision {
+    fn decide(
+        &self,
+        _: &ExecutionScope,
+        _: &str,
+        _: ExecutionPhase,
+        severity: Severity,
+    ) -> AuditDecision {
         let rank = |value| match value {
             Severity::Information => 0,
             Severity::Warning => 1,
             Severity::Error => 2,
         };
 
-        if rank(severity) >= rank(self.minimum) { AuditDecision::Record } else { AuditDecision::Suppress }
+        if rank(severity) >= rank(self.minimum) {
+            AuditDecision::Record
+        } else {
+            AuditDecision::Suppress
+        }
     }
 }
