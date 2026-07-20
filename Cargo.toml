@@ -1,0 +1,10 @@
+[package]
+name = "xmip-audit"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/IlleNilsson/xmip-audit"
+description = "Configurable audit lifecycle records for every Xmip action."
+
+[dependencies]
+xmip-core = { git = "https://github.com/IlleNilsson/xmip-core", rev = "83f68c482f42a22866902ff7d78e7a3b1d14dcdf" }
