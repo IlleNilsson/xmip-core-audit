@@ -2,12 +2,12 @@
 [workspace]
 
 [package]
-name = "xmip-audit"
+name = "xmip-core-audit"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/IlleNilsson/xmip-audit"
+repository = "https://github.com/IlleNilsson/xmip-core-audit"
 description = "Configurable audit lifecycle records for every Xmip action."
 
 [dependencies]
-xmip-core = { git = "https://github.com/IlleNilsson/xmip-core", rev = "9adfd1eb4a6a3b5a6b0b6ea9b3a1fb288b41c8fc" }
+xmip-core = { git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
