@@ -61,12 +61,9 @@ impl<'a> Audit<'a> {
     }
 
     pub fn emit(&self, record: AuditRecord) -> Result<AuditDecision, AuditError> {
-        let decision = self.policy.decide(
-            &record.scope,
-            &record.action,
-            record.phase,
-            record.severity,
-        );
+        let decision =
+            self.policy
+                .decide(&record.scope, &record.action, record.phase, record.severity);
 
         if decision == AuditDecision::Record {
             self.sink.write(record)?;
