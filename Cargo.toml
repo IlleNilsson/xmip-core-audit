@@ -10,4 +10,4 @@ repository = "https://github.com/IlleNilsson/xmip-core-audit"
 description = "Configurable audit lifecycle records for every Xmip action."
 
 [dependencies]
-xmip-core = { git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }

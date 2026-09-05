@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use xmip_core::{AuditId, ExecutionPhase, ExecutionScope, Severity};
+use xcore::{AuditId, ExecutionPhase, ExecutionScope, Severity};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuditRecord {
