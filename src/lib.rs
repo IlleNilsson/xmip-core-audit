@@ -1,8 +1,6 @@
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt;
 use xcore::{AuditId, ExecutionPhase, ExecutionScope, Severity};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,18 +31,7 @@ pub trait AuditPolicy: Send + Sync {
     ) -> AuditDecision;
 }
 
-#[derive(Debug)]
-pub struct AuditError {
-    pub message: String,
-}
-
-impl fmt::Display for AuditError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl Error for AuditError {}
+xcore::declare_error!(AuditError);
 
 pub trait AuditSink: Send + Sync {
     fn write(&self, record: AuditRecord) -> Result<(), AuditError>;
