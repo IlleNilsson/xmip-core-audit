@@ -86,3 +86,81 @@ impl AuditPolicy for MinimumSeverityPolicy {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use xcore::{ArtifactId, ArtifactRef, ExecutionId, JourneyId, MessageId};
+
+    struct Kept(Mutex<Vec<AuditRecord>>);
+
+    impl AuditSink for Kept {
+        fn write(&self, record: AuditRecord) -> Result<(), AuditError> {
+            self.0
+                .lock()
+                .map_err(|_| AuditError::new("poisoned"))?
+                .push(record);
+            Ok(())
+        }
+    }
+
+    fn record(severity: Severity) -> AuditRecord {
+        AuditRecord {
+            audit_id: AuditId::new(1),
+            scope: ExecutionScope {
+                execution_id: ExecutionId::new(2),
+                journey_id: JourneyId::new(3),
+                message_id: MessageId::new(4),
+                artifact: ArtifactRef {
+                    artifact_id: ArtifactId::new(5),
+                    artifact_type: "stream",
+                    name: "probe".to_string(),
+                    version: None,
+                },
+                node_id: None,
+                cluster_id: None,
+            },
+            action: "receive".to_string(),
+            phase: ExecutionPhase::Execute,
+            severity,
+            timestamp_unix_nanos: 0,
+            message: None,
+            properties: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn the_minimum_severity_policy_records_at_and_above_its_floor() {
+        let policy = MinimumSeverityPolicy {
+            minimum: Severity::Warning,
+        };
+        let sink = Kept(Mutex::new(Vec::new()));
+        let audit = Audit::new(&policy, &sink);
+        assert_eq!(
+            audit.emit(record(Severity::Information)).expect("emitted"),
+            AuditDecision::Suppress
+        );
+        assert_eq!(
+            audit.emit(record(Severity::Warning)).expect("emitted"),
+            AuditDecision::Record
+        );
+        assert_eq!(
+            audit.emit(record(Severity::Error)).expect("emitted"),
+            AuditDecision::Record
+        );
+        assert_eq!(
+            sink.0.lock().expect("kept").len(),
+            2,
+            "only what was recorded reached the sink"
+        );
+    }
+
+    #[test]
+    fn an_audit_error_says_why() {
+        assert_eq!(
+            AuditError::new("the sink is full").to_string(),
+            "the sink is full"
+        );
+    }
+}
