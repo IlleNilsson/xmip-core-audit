@@ -1,0 +1,157 @@
+//! [`ProgramAudit`]: how an Xmip program audits what it does (ADR-0062
+//! clause 1) — a host that started and stopped, an act an operator took
+//! through it, every failure and an unhandled one first.
+//!
+//! A Rust program holds one; a .NET program and PowerShell reach the same
+//! one through the runtime's library (`xmip_operate.h` section 9). Every
+//! record is kept by policy — a program's acts are few and every one
+//! matters — in the file sink [`FileSink::stated`] finds, or the operating
+//! system's log when there is none.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use xcore::{AuditId, ExecutionPhase, IdGenerator, Severity, UuidV7Generator};
+
+use crate::audit_record::AuditRecord;
+use crate::emit::{Audit, AuditOutcome};
+use crate::file_sink::FileSink;
+use crate::origin::Origin;
+use crate::redaction::without_credentials;
+use crate::{AuditError, AuditSink, MinimumSeverityPolicy};
+
+/// A program's own acts keep everything.
+const EVERYTHING: MinimumSeverityPolicy = MinimumSeverityPolicy {
+    minimum: Severity::Information,
+};
+
+/// One program's audit: who it is and where its records go.
+#[derive(Clone, Debug)]
+pub struct ProgramAudit {
+    origin: Origin,
+    sink: Option<FileSink>,
+}
+
+impl ProgramAudit {
+    /// `program` in this process, auditing into `directory` when it is
+    /// stated, else where [`FileSink::stated`] says.
+    #[must_use]
+    pub fn new(program: &str, directory: Option<&Path>) -> Self {
+        Self {
+            origin: Origin::here(program),
+            sink: FileSink::stated(directory),
+        }
+    }
+
+    /// The file records go to, or `None` when they go to the operating
+    /// system's log.
+    #[must_use]
+    pub fn file(&self) -> Option<PathBuf> {
+        self.sink.as_ref().map(FileSink::path)
+    }
+
+    /// Record one act. An address's user and password never reach the
+    /// record, in the message or in a property ([`without_credentials`]).
+    ///
+    /// # Errors
+    /// Neither the sink nor the operating system's log kept it.
+    pub fn record(
+        &self,
+        action: &str,
+        phase: ExecutionPhase,
+        severity: Severity,
+        message: Option<&str>,
+        properties: BTreeMap<String, String>,
+    ) -> Result<AuditOutcome, AuditError> {
+        let record = AuditRecord {
+            audit_id: AuditId::new(UuidV7Generator.next_u128()),
+            origin: self.origin.clone(),
+            scope: None,
+            action: action.to_string(),
+            phase,
+            severity,
+            timestamp_unix_nanos: now(),
+            message: message.map(without_credentials),
+            properties: properties
+                .into_iter()
+                .map(|(key, value)| (key, without_credentials(&value)))
+                .collect(),
+        };
+        let sink = self.sink.as_ref().map(|sink| sink as &dyn AuditSink);
+
+        Audit::new(&EVERYTHING, sink).emit(&record)
+    }
+
+    /// Record that the program failed: `action`, the Failure phase, Error.
+    ///
+    /// # Errors
+    /// As [`Self::record`].
+    pub fn failed(&self, action: &str, message: &str) -> Result<AuditOutcome, AuditError> {
+        self.record(
+            action,
+            ExecutionPhase::Failure,
+            Severity::Error,
+            Some(message),
+            BTreeMap::new(),
+        )
+    }
+
+    /// Audit every panic in this process as an unhandled failure, then let
+    /// the panic go on as it would have.
+    pub fn watch_panics(&self) {
+        let audit = self.clone();
+        let previous = std::panic::take_hook();
+
+        std::panic::set_hook(Box::new(move |panic| {
+            // A panic inside the panic hook aborts; a record that could not
+            // be kept is all this can lose, and the previous hook still
+            // prints the panic.
+            let _ = audit.failed("unhandled", &panic.to_string());
+            previous(panic);
+        }));
+    }
+}
+
+/// Nanoseconds since the epoch.
+fn now() -> i128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| {
+            i128::try_from(since.as_nanos()).unwrap_or(i128::MAX)
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn a_program_records_into_the_directory_it_was_told() {
+        let directory =
+            std::env::temp_dir().join(format!("xmip-program-audit-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        let audit = ProgramAudit::new("probe", Some(&directory));
+
+        let outcome = audit
+            .record(
+                "start",
+                ExecutionPhase::Begin,
+                Severity::Information,
+                Some("started"),
+                BTreeMap::from([("url".to_string(), "http://127.0.0.1:5087".to_string())]),
+            )
+            .expect("recorded");
+
+        assert_eq!(outcome, AuditOutcome::Persisted);
+        let file = audit.file().expect("a file sink");
+        let text = fs::read_to_string(file).expect("read");
+        assert!(text.contains("program = \"probe\""), "{text}");
+        assert!(
+            text.contains("\"url\" = \"http://127.0.0.1:5087\""),
+            "{text}"
+        );
+        let _ = fs::remove_dir_all(&directory);
+    }
+}

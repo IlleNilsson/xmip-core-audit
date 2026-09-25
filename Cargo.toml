@@ -7,7 +7,43 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/IlleNilsson/xmip-core-audit"
-description = "Configurable audit lifecycle records for every Xmip action."
+description = "Configurable audit lifecycle records for every Xmip action and every Xmip program, and the operating system's log when audit cannot persist (ADR-0062)."
 
 [dependencies]
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+# uuid-v7: an audit record's identifier is minted here, as every Xmip
+# identifier is, by xmip-core's one generator.
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7"] }
+# The estate's encoding primitives: a record is written as TOML (quoted by
+# codec's one quoting) and stamped by the civil calendar.
+codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+
+# The event source's name, XMIP_EVENT_SOURCE, from the header that declares it.
+abi = { package = "xmip-core-abi", git = "https://github.com/IlleNilsson/xmip-core-abi", branch = "main" }
+
+# The Event Log and the registry are C interfaces, reached from one file,
+# src/windows_event_log.rs (ADR-0050, amendment 2026-09-25).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_EventLog",
+    "Win32_System_Registry",
+] }
+
+[lints.rust]
+# deny, not forbid, because forbid cannot be lowered anywhere: the one file
+# that calls the Windows Event Log, src/windows_event_log.rs, allows it with
+# its reason at the top (ADR-0050, amendment 2026-09-25), and nothing else
+# may. test/Unsafe.Test.ps1 holds the list.
+unsafe_code = "deny"
+
+[lints.clippy]
+# Warned, never denied. doc/governance/rust-style.md section 3.
+too_many_lines = "warn"
+
+# The ones that catch real defects rather than taste.
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+unwrap_used = "warn"
+expect_used = "allow"

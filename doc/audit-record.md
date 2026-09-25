@@ -93,3 +93,35 @@ Information. Some conditions are configurable as **non-suppressible**: audit
 subsystem failure, security-critical failure, configuration corruption, and
 persistence failure that risks losing required evidence.
 
+
+## A program's record
+
+Every Xmip program audits, not only the runtime (ADR-0062). A program's own
+act — a host that started, a command an operator ran, a cmdlet that failed —
+belongs to no Message's execution, so its record carries no scope; it carries
+its **origin** instead: the program's name, the host and the process, which
+is what outlives the process (observability-model section 3). A program's
+records are all kept: its acts are few and each one matters.
+
+On disk a record is one TOML table, appended:
+
+```toml
+[[record]]
+audit_id = "01a0d72a-3f6f-7613-9a1b-1824ccbedc90"
+at = "2026-09-25T06:04:25.327773900Z"
+program = "xmip-gui-web"
+host = "edge-01"
+process = "39800"
+action = "error logged"
+phase = "failure"
+severity = "error"
+message = "the snapshot is gone"
+[record.properties]
+"category" = "Microsoft.AspNetCore.Components.Server.Circuits.CircuitHost"
+"exception" = "System.InvalidOperationException"
+```
+
+When audit cannot persist a record, the operating system's log holds it, one
+line opening with why (the README beside this file says where, per platform).
+That is the persistence floor of *failure records are always persisted*: a
+record the sink refused is still somewhere an operator can read.
