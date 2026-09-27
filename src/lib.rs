@@ -12,11 +12,15 @@
 //!
 //! A program audits through [`program_audit::ProgramAudit`], whose default
 //! sink is [`file_sink::FileSink`]: the directory it is told, else
-//! `XMIP_AUDIT_DIRECTORY`, else none and the operating system's log.
+//! `XMIP_AUDIT_DIRECTORY`, else none and the operating system's log. A
+//! record made where the caller must not wait for a disk is handed to the
+//! [`keeper`], one thread that keeps records in order.
 
 pub mod audit_record;
 pub mod emit;
+pub mod execution_scope;
 pub mod file_sink;
+pub mod keeper;
 pub mod operating_system_log;
 pub mod origin;
 pub mod program_audit;
@@ -28,7 +32,8 @@ mod syslog;
 mod windows_event_log;
 
 use audit_record::AuditRecord;
-use xcore::{ExecutionPhase, ExecutionScope, Severity};
+use execution_scope::ExecutionScope;
+use xcore::{ExecutionPhase, Severity};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuditDecision {

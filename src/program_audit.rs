@@ -10,13 +10,13 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use xcore::{AuditId, ExecutionPhase, IdGenerator, Severity, UuidV7Generator};
+use xcore::{AuditId, Clock, ExecutionPhase, IdGenerator, Severity, SystemClock, UuidV7Generator};
 
 use crate::audit_record::AuditRecord;
 use crate::emit::{Audit, AuditOutcome};
 use crate::file_sink::FileSink;
+use crate::keeper;
 use crate::origin::Origin;
 use crate::redaction::without_credentials;
 use crate::{AuditError, AuditSink, MinimumSeverityPolicy};
@@ -51,8 +51,10 @@ impl ProgramAudit {
         self.sink.as_ref().map(FileSink::path)
     }
 
-    /// Record one act. An address's user and password never reach the
-    /// record, in the message or in a property ([`without_credentials`]).
+    /// Record one act, after everything handed to the [`keeper`] before it:
+    /// a program's records are kept in the order it made them. An address's
+    /// user and password never reach the record, in the message or in a
+    /// property ([`without_credentials`]).
     ///
     /// # Errors
     /// Neither the sink nor the operating system's log kept it.
@@ -64,6 +66,7 @@ impl ProgramAudit {
         message: Option<&str>,
         properties: BTreeMap<String, String>,
     ) -> Result<AuditOutcome, AuditError> {
+        keeper::settle();
         let record = AuditRecord {
             audit_id: AuditId::new(UuidV7Generator.next_u128()),
             origin: self.origin.clone(),
@@ -71,7 +74,7 @@ impl ProgramAudit {
             action: action.to_string(),
             phase,
             severity,
-            timestamp_unix_nanos: now(),
+            timestamp_unix_nanos: SystemClock.unix_timestamp_nanos(),
             message: message.map(without_credentials),
             properties: properties
                 .into_iter()
@@ -111,15 +114,6 @@ impl ProgramAudit {
             previous(panic);
         }));
     }
-}
-
-/// Nanoseconds since the epoch.
-fn now() -> i128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| {
-            i128::try_from(since.as_nanos()).unwrap_or(i128::MAX)
-        })
 }
 
 #[cfg(test)]

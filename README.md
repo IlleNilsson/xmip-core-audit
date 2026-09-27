@@ -3,7 +3,8 @@
 The audit record: the persistent accountability record of what Xmip did,
 where, by whom, why, when and with what outcome. An `AuditRecord` carries its
 origin — the program, host and process — its scope when it belongs to a
-Message's execution, its action, phase and severity; an `AuditPolicy` decides
+Message's execution (`execution_scope::ExecutionScope`, naming the
+`ArtifactRef` that acted), its action, phase and severity; an `AuditPolicy` decides
 record or suppress; an `AuditSink` persists; `Audit` puts the three together.
 
 Audit is cross-cutting, not a stage, and it holds no payloads — retention
@@ -23,6 +24,13 @@ takes through them and every failure. A Rust program holds a
 program and PowerShell reach the same one through the runtime's library,
 `xmip_operate.h` section 9 (`xmip_audit_v1`), and `Xmip.Surface`'s
 `ProgramAudit`. No program writes a record of its own.
+
+A record made where the caller must not wait for a disk — an Event's
+delivery, a subscription closed — is handed to `keeper`, one thread in the
+process that keeps records in the order they were handed over
+(`keeper::later`); `keeper::settle` waits for them, and a direct
+`ProgramAudit::record` settles first, so a program's records are kept in the
+order it made them and the record of its stop after everything before it.
 
 A program's records go to `file_sink::FileSink` — `audit.toml`, one
 `[[record]]` table per record, in the directory the program was told (its

@@ -12,8 +12,9 @@ use std::fmt::Write;
 
 use codec::civil::rfc3339_nanos;
 use codec::toml::quote;
-use xcore::{AuditId, ExecutionPhase, ExecutionScope, Severity};
+use xcore::{AuditId, ExecutionPhase, Severity};
 
+use crate::execution_scope::ExecutionScope;
 use crate::origin::Origin;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -150,7 +151,8 @@ pub const fn severity_word(severity: Severity) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xcore::{ArtifactId, ArtifactRef, ExecutionId, JourneyId, MessageId};
+    use crate::execution_scope::ArtifactRef;
+    use xcore::{ArtifactId, ExecutionId, JourneyId, MessageId};
 
     fn record() -> AuditRecord {
         AuditRecord {
