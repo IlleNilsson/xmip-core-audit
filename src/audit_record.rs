@@ -10,13 +10,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use codec::civil::CivilTime;
+use codec::civil::rfc3339_nanos;
 use codec::toml::quote;
 use xcore::{AuditId, ExecutionPhase, ExecutionScope, Severity};
 
 use crate::origin::Origin;
-
-const NANOS_A_SECOND: i128 = 1_000_000_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuditRecord {
@@ -52,7 +50,7 @@ impl AuditRecord {
         };
 
         field("audit_id", &self.audit_id.to_string());
-        field("at", &moment(self.timestamp_unix_nanos));
+        field("at", &rfc3339_nanos(self.timestamp_unix_nanos));
         field("program", &self.origin.program);
         field("host", &self.origin.host);
         field("process", &self.origin.process.to_string());
@@ -113,7 +111,7 @@ impl AuditRecord {
             self.origin.process,
             self.origin.host,
             self.audit_id,
-            moment(self.timestamp_unix_nanos)
+            rfc3339_nanos(self.timestamp_unix_nanos)
         );
 
         out.chars()
@@ -147,15 +145,6 @@ pub const fn severity_word(severity: Severity) -> &'static str {
         Severity::Warning => "warning",
         Severity::Error => "error",
     }
-}
-
-/// RFC 3339 in UTC to the nanosecond.
-fn moment(unix_nanos: i128) -> String {
-    let seconds = i64::try_from(unix_nanos.div_euclid(NANOS_A_SECOND)).unwrap_or(0);
-    let nanos = unix_nanos.rem_euclid(NANOS_A_SECOND);
-    let whole = CivilTime::from_unix(seconds).rfc3339();
-
-    format!("{}.{nanos:09}Z", whole.trim_end_matches('Z'))
 }
 
 #[cfg(test)]
