@@ -39,6 +39,34 @@ names, else nowhere. The estate's tooling sets the variable to
 `.local-work/audit` for everything it starts. An address's user and password
 never reach a record (`redaction::without_credentials`).
 
+## Whose a record is, and reading it back (ADR-0062, amendment 2026-09-29)
+
+A process that belongs somewhere in Xmip says where: `ProgramAudit::locate`
+takes the location it declares (ADR-0053 clause 3) — `xmip:///C1` for a
+Playground roll or its cluster, `xmip:///C1/node/R1` for a node or the Xmip
+Service — and every record from then on, by any clone and the panic hook's,
+carries it as `location`. A program that serves no scope — a cmdlet, the web
+host, the command line — declares none, and a reader shows its records under
+their host. Nothing reads meaning out of a program's name.
+
+The one reader of the file is here too. `audit_store::read` reads
+`audit.toml` into `audit_entry::AuditEntry` records, keeps them, and reads
+only what was appended since the last time — a table is read once it ends
+with its blank line, so a record still being appended waits for the next
+read — and a file that got shorter is read again from its start.
+`audit_query::AuditQuery` is what every surface asks of them, in the same
+words: who (`location`, at and beneath a scope; `host`, the records that
+declared none; `program`; `record`, one of them), the scope `pattern` —
+`observe::wildcard`, the estate's one wildcard, over each location, a record
+with none standing at the root — `severity`, `action`, `from` and `to`,
+`sort` by any `audit_column::Column` either way, and a bounded page
+(`offset`, `limit`, at most 1,000). Its answer counts what matched, gives
+the page, the groups one step down the drill — clusters and hosts, a
+cluster's nodes and its own programs, a node's programs — and the actions
+there are to choose from. The runtime forwards it as `xmip_audit_read_v1`
+(`xmip_operate.h` section 9), `Xmip.Surface`'s `ProgramAudit.Read` calls
+that, and the Audit view, `xmip-cli audit` and `Get-XmipAudit` are that call.
+
 ## When audit cannot persist: the operating system's log
 
 When the sink refuses a record, or there is none, `Audit` hands it to

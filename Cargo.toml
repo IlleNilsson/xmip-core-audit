@@ -17,6 +17,11 @@ xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core
 # codec's one quoting) and stamped by the civil calendar.
 codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
 
+# The one scope rule and the one wildcard: a reader asks who a record is by
+# the location its process declared, and filters by the pattern every
+# surface filters with (ADR-0062, amendment 2026-09-29).
+observe = { package = "xmip-core-observe", git = "https://github.com/IlleNilsson/xmip-core-observe", branch = "main" }
+
 # The event source's name, XMIP_EVENT_SOURCE, from the header that declares it.
 abi = { package = "xmip-core-abi", git = "https://github.com/IlleNilsson/xmip-core-abi", branch = "main" }
 

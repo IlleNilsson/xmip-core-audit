@@ -15,8 +15,20 @@
 //! `XMIP_AUDIT_DIRECTORY`, else none and the operating system's log. A
 //! record made where the caller must not wait for a disk is handed to the
 //! [`keeper`], one thread that keeps records in order.
+//!
+//! A reader reads the same file back: [`audit_store::read`] keeps what it
+//! read and reads only what was appended since, [`audit_entry::AuditEntry`]
+//! is a record read back, and [`audit_query::AuditQuery`] is what every
+//! surface asks of it — who, the scope pattern, severity, action and time,
+//! sorted by any column and paged (ADR-0062, amendment 2026-09-29). Who a
+//! record is, is the location its process declared, which
+//! [`program_audit::ProgramAudit::locate`] puts on every record.
 
+pub mod audit_column;
+pub mod audit_entry;
+pub mod audit_query;
 pub mod audit_record;
+pub mod audit_store;
 pub mod emit;
 pub mod execution_scope;
 pub mod file_sink;

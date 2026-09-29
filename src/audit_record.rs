@@ -55,6 +55,9 @@ impl AuditRecord {
         field("program", &self.origin.program);
         field("host", &self.origin.host);
         field("process", &self.origin.process.to_string());
+        if let Some(location) = &self.origin.location {
+            field("location", location);
+        }
         field("action", &self.action);
         field("phase", phase_word(self.phase));
         field("severity", severity_word(self.severity));
@@ -107,10 +110,15 @@ impl AuditRecord {
 
         let _ = write!(
             out,
-            " ({} pid {} on {}, audit {}, {})",
-            self.origin.program,
-            self.origin.process,
-            self.origin.host,
+            " ({} pid {} on {}",
+            self.origin.program, self.origin.process, self.origin.host
+        );
+        if let Some(location) = &self.origin.location {
+            let _ = write!(out, " at {location}");
+        }
+        let _ = write!(
+            out,
+            ", audit {}, {})",
             self.audit_id,
             rfc3339_nanos(self.timestamp_unix_nanos)
         );
@@ -161,6 +169,7 @@ mod tests {
                 program: "Xmip.Gui.Web".to_string(),
                 host: "edge-01".to_string(),
                 process: 42,
+                location: None,
             },
             scope: None,
             action: "unhandled".to_string(),
@@ -221,6 +230,25 @@ mod tests {
 
         assert!(text.contains("[record.scope]\n"), "{text}");
         assert!(text.contains("artifact = \"probe\"\n"), "{text}");
+    }
+
+    #[test]
+    fn a_location_is_written_when_the_process_declared_one() {
+        let mut probe = record();
+        assert!(
+            !probe.toml().contains("location"),
+            "none declared, none written"
+        );
+        probe.origin.location = Some("xmip:///C1/node/R1".to_string());
+
+        assert!(
+            probe
+                .toml()
+                .contains("process = \"42\"\nlocation = \"xmip:///C1/node/R1\"\n"),
+            "{}",
+            probe.toml()
+        );
+        assert!(probe.line().contains("on edge-01 at xmip:///C1/node/R1,"));
     }
 
     #[test]

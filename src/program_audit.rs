@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use xcore::{AuditId, Clock, ExecutionPhase, IdGenerator, Severity, SystemClock, UuidV7Generator};
 
@@ -30,6 +31,10 @@ const EVERYTHING: MinimumSeverityPolicy = MinimumSeverityPolicy {
 #[derive(Clone, Debug)]
 pub struct ProgramAudit {
     origin: Origin,
+    /// Where the process declared it belongs, once; shared by every clone,
+    /// the panic hook's among them, so a record made anywhere after the
+    /// declaration carries it.
+    location: Arc<OnceLock<String>>,
     sink: Option<FileSink>,
 }
 
@@ -40,8 +45,28 @@ impl ProgramAudit {
     pub fn new(program: &str, directory: Option<&Path>) -> Self {
         Self {
             origin: Origin::here(program),
+            location: Arc::new(OnceLock::new()),
             sink: FileSink::stated(directory),
         }
+    }
+
+    /// Say where the process belongs — the location it declares (ADR-0053
+    /// clause 3), `xmip:///C1/node/R1` for a node — on every record this
+    /// audit and each of its clones makes from now on, so a reader knows
+    /// whose a record is without reading the program's name (ADR-0062,
+    /// amendment 2026-09-29). A process declares once: the first location
+    /// stands, and a blank one is none.
+    pub fn locate(&self, location: &str) {
+        let location = location.trim();
+        if !location.is_empty() {
+            let _ = self.location.set(location.to_string());
+        }
+    }
+
+    /// The location every record carries, once the process declared one.
+    #[must_use]
+    pub fn location(&self) -> Option<&str> {
+        self.location.get().map(String::as_str)
     }
 
     /// The file records go to, or `None` when they go to the operating
@@ -69,7 +94,10 @@ impl ProgramAudit {
         keeper::settle();
         let record = AuditRecord {
             audit_id: AuditId::new(UuidV7Generator.next_u128()),
-            origin: self.origin.clone(),
+            origin: Origin {
+                location: self.location.get().cloned(),
+                ..self.origin.clone()
+            },
             scope: None,
             action: action.to_string(),
             phase,
@@ -142,10 +170,51 @@ mod tests {
         let file = audit.file().expect("a file sink");
         let text = fs::read_to_string(file).expect("read");
         assert!(text.contains("program = \"probe\""), "{text}");
+        assert!(!text.contains("location"), "none declared: {text}");
         assert!(
             text.contains("\"url\" = \"http://127.0.0.1:5087\""),
             "{text}"
         );
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_located_program_puts_its_location_on_every_record() {
+        let directory =
+            std::env::temp_dir().join(format!("xmip-program-located-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        let audit = ProgramAudit::new("probe", Some(&directory));
+        let earlier = audit.clone();
+        audit.locate(" xmip:///C1/node/R1 ");
+        audit.locate("xmip:///C2");
+
+        assert_eq!(
+            audit.location(),
+            Some("xmip:///C1/node/R1"),
+            "the first stands"
+        );
+        earlier
+            .failed("publish", "could not")
+            .expect("a clone made before carries it too");
+        audit
+            .record(
+                "stop",
+                ExecutionPhase::Finished,
+                Severity::Information,
+                None,
+                BTreeMap::new(),
+            )
+            .expect("recorded");
+
+        let text = fs::read_to_string(audit.file().expect("a file")).expect("read");
+        assert_eq!(
+            text.matches("location = \"xmip:///C1/node/R1\"").count(),
+            2,
+            "{text}"
+        );
+        let blank = ProgramAudit::new("probe", None);
+        blank.locate("  ");
+        assert_eq!(blank.location(), None);
         let _ = fs::remove_dir_all(&directory);
     }
 }

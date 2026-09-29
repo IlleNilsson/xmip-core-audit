@@ -3,6 +3,11 @@
 //! Observability-model section 3: a record must outlive what produced it and
 //! carry enough to say where it came from once that is gone. A process id
 //! alone is gone with the process; the program's name and the host are not.
+//!
+//! A process that belongs somewhere in Xmip says where: the location it
+//! declared (ADR-0053 clause 3), `xmip:///C1/node/R1` for a node, carried on
+//! every record it makes so a reader groups records by what they belong to
+//! and never by reading a program's name (ADR-0062, amendment 2026-09-29).
 
 use std::fs;
 
@@ -16,6 +21,11 @@ pub struct Origin {
     pub host: String,
     /// The operating system's process id.
     pub process: u32,
+    /// The scope the process declared it serves (ADR-0053 clause 3):
+    /// `xmip:///C1` for a roll or its cluster, `xmip:///C1/node/R1` for a
+    /// node. `None` for a program that serves no scope — a cmdlet, a web
+    /// host — whose records a reader shows under their host.
+    pub location: Option<String>,
 }
 
 impl Origin {
@@ -26,6 +36,7 @@ impl Origin {
             program: program.into(),
             host: host_name(),
             process: std::process::id(),
+            location: None,
         }
     }
 }

@@ -121,6 +121,12 @@ message = "the snapshot is gone"
 "exception" = "System.InvalidOperationException"
 ```
 
+A process that belongs somewhere in Xmip writes where, after `process`:
+`location = "xmip:///C1/node/R1"`, the location it declared (ADR-0053 clause
+3), on every record it makes once it declared it. A program that serves no
+scope writes none. A reader groups records by it — cluster, node, program —
+and never by a program's name (ADR-0062, amendment 2026-09-29).
+
 When audit cannot persist a record, the operating system's log holds it, one
 line opening with why (the README beside this file says where, per platform).
 That is the persistence floor of *failure records are always persisted*: a
