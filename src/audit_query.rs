@@ -376,8 +376,8 @@ mod tests {
         let mut failed = entry(
             "4",
             4,
-            Some("xmip:///C1/node/R1"),
-            "xmip-playground-C1-node-R1",
+            Some("xmip:///C1/node/alpha"),
+            "xmip-playground-C1-node-alpha",
         );
         failed.severity = "error".to_string();
         failed.phase = "failure".to_string();
@@ -388,15 +388,15 @@ mod tests {
             entry(
                 "3",
                 3,
-                Some("xmip:///C1/node/R1"),
-                "xmip-playground-C1-node-R1",
+                Some("xmip:///C1/node/alpha"),
+                "xmip-playground-C1-node-alpha",
             ),
             failed,
             entry(
                 "5",
                 5,
-                Some("xmip:///C2/node/P1"),
-                "xmip-playground-C2-node-P1",
+                Some("xmip:///C2/node/beta"),
+                "xmip-playground-C2-node-beta",
             ),
             entry("6", 6, None, "Xmip"),
             entry("7", 7, Some("xmip:///C10"), "xmip-playground-C10-roll"),
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(
             groups(&page),
             [
-                ("node", "xmip:///C1/node/R1", 2),
+                ("node", "xmip:///C1/node/alpha", 2),
                 ("program", "xmip-playground-C1-cluster", 1),
                 ("program", "xmip-playground-C1-roll", 1),
             ]
@@ -457,15 +457,15 @@ mod tests {
 
     #[test]
     fn a_node_groups_its_programs_and_a_program_is_the_bottom() {
-        let node = ask(&[("location", "xmip:///C1/node/R1")]);
+        let node = ask(&[("location", "xmip:///C1/node/alpha")]);
         assert_eq!(
             groups(&node),
-            [("program", "xmip-playground-C1-node-R1", 2)]
+            [("program", "xmip-playground-C1-node-alpha", 2)]
         );
 
         let program = ask(&[
-            ("location", "xmip:///C1/node/R1"),
-            ("program", "xmip-playground-C1-node-R1"),
+            ("location", "xmip:///C1/node/alpha"),
+            ("program", "xmip-playground-C1-node-alpha"),
         ]);
         assert_eq!(ids(&program), ["4", "3"]);
         assert!(program.groups.is_empty());
@@ -520,8 +520,8 @@ mod tests {
         let by_node = ask(&[("sort", "node"), ("order", "descending")]);
         assert_eq!(
             &ids(&by_node)[..3],
-            ["4", "3", "5"],
-            "R1 over P1, newest first"
+            ["5", "4", "3"],
+            "beta over alpha, newest first"
         );
     }
 

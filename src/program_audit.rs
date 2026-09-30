@@ -56,7 +56,7 @@ impl ProgramAudit {
     }
 
     /// Say where the process belongs — the location it declares (ADR-0053
-    /// clause 3), `xmip:///C1/node/R1` for a node — on every record this
+    /// clause 3), `xmip:///C1/node/alpha` for a node — on every record this
     /// audit and each of its clones makes from now on, so a reader knows
     /// whose a record is without reading the program's name (ADR-0062,
     /// amendment 2026-09-29). A process declares once: the first location
@@ -206,12 +206,12 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         let audit = ProgramAudit::new("probe", Some(&directory));
         let earlier = audit.clone();
-        audit.locate(" xmip:///C1/node/R1 ");
+        audit.locate(" xmip:///C1/node/alpha ");
         audit.locate("xmip:///C2");
 
         assert_eq!(
             audit.location(),
-            Some("xmip:///C1/node/R1"),
+            Some("xmip:///C1/node/alpha"),
             "the first stands"
         );
         earlier
@@ -229,7 +229,7 @@ mod tests {
 
         let text = fs::read_to_string(audit.file().expect("a file")).expect("read");
         assert_eq!(
-            text.matches("location = \"xmip:///C1/node/R1\"").count(),
+            text.matches("location = \"xmip:///C1/node/alpha\"").count(),
             2,
             "{text}"
         );

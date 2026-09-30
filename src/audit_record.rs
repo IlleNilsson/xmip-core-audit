@@ -246,16 +246,20 @@ mod tests {
             !probe.toml().contains("location"),
             "none declared, none written"
         );
-        probe.origin.location = Some("xmip:///C1/node/R1".to_string());
+        probe.origin.location = Some("xmip:///C1/node/alpha".to_string());
 
         assert!(
             probe
                 .toml()
-                .contains("process = \"42\"\nlocation = \"xmip:///C1/node/R1\"\n"),
+                .contains("process = \"42\"\nlocation = \"xmip:///C1/node/alpha\"\n"),
             "{}",
             probe.toml()
         );
-        assert!(probe.line().contains("on edge-01 at xmip:///C1/node/R1,"));
+        assert!(
+            probe
+                .line()
+                .contains("on edge-01 at xmip:///C1/node/alpha,")
+        );
     }
 
     #[test]

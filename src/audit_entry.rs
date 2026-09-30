@@ -42,7 +42,7 @@ pub struct AuditEntry {
 
 impl AuditEntry {
     /// The node the record's process is on, by the one rule
-    /// ([`Scope::node`]): `R1` for `xmip:///C1/node/R1`, none for a roll,
+    /// ([`Scope::node`]): `alpha` for `xmip:///C1/node/alpha`, none for a roll,
     /// a cluster or a program outside a cluster.
     #[must_use]
     pub fn node(&self) -> Option<&str> {
@@ -197,7 +197,7 @@ mod tests {
         AuditRecord {
             audit_id: AuditId::new(9),
             origin: Origin {
-                program: "xmip-playground-C1-node-R1".to_string(),
+                program: "xmip-playground-C1-node-alpha".to_string(),
                 host: "edge-01".to_string(),
                 process: 7,
                 location: location.map(str::to_string),
@@ -216,14 +216,14 @@ mod tests {
 
     #[test]
     fn what_the_writer_writes_the_reader_reads_whole() {
-        let text = written("start", Some("xmip:///C1/node/R1"));
+        let text = written("start", Some("xmip:///C1/node/alpha"));
         let (entries, read) = parse(&text);
 
         assert_eq!(read, text.len());
         let entry = &entries[0];
-        assert_eq!(entry.program, "xmip-playground-C1-node-R1");
-        assert_eq!(entry.location.as_deref(), Some("xmip:///C1/node/R1"));
-        assert_eq!(entry.node(), Some("R1"));
+        assert_eq!(entry.program, "xmip-playground-C1-node-alpha");
+        assert_eq!(entry.location.as_deref(), Some("xmip:///C1/node/alpha"));
+        assert_eq!(entry.node(), Some("alpha"));
         assert_eq!(entry.cluster(), Some("C1"));
         assert_eq!(entry.phase, "failure");
         assert_eq!(entry.severity, "error");
