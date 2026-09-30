@@ -127,6 +127,13 @@ A process that belongs somewhere in Xmip writes where, after `process`:
 scope writes none. A reader groups records by it — cluster, node, program —
 and never by a program's name (ADR-0062, amendment 2026-09-29).
 
+A process of a run that declared itself hidden writes `hidden = "true"`
+after its location, on every record from the moment it declared
+(`ProgramAudit::hide`), and nothing else writes the key. A reader leaves such
+records out unless its query includes them — `hidden = "include"` in the
+query's words — by the one rule, `observe::run::shown` (ADR-0028, amendment
+2026-09-30).
+
 When audit cannot persist a record, the operating system's log holds it, one
 line opening with why (the README beside this file says where, per platform).
 That is the persistence floor of *failure records are always persisted*: a

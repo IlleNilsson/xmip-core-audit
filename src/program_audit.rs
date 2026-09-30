@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use xcore::{AuditId, Clock, ExecutionPhase, IdGenerator, Severity, SystemClock, UuidV7Generator};
@@ -35,6 +36,9 @@ pub struct ProgramAudit {
     /// the panic hook's among them, so a record made anywhere after the
     /// declaration carries it.
     location: Arc<OnceLock<String>>,
+    /// Whether the process belongs to a run that declared itself hidden;
+    /// shared by every clone as the location is.
+    hidden: Arc<AtomicBool>,
     sink: Option<FileSink>,
 }
 
@@ -46,6 +50,7 @@ impl ProgramAudit {
         Self {
             origin: Origin::here(program),
             location: Arc::new(OnceLock::new()),
+            hidden: Arc::new(AtomicBool::new(false)),
             sink: FileSink::stated(directory),
         }
     }
@@ -67,6 +72,21 @@ impl ProgramAudit {
     #[must_use]
     pub fn location(&self) -> Option<&str> {
         self.location.get().map(String::as_str)
+    }
+
+    /// Say that the process belongs to a run that declared itself hidden —
+    /// an assistant's test run (ADR-0028, amendment 2026-09-30) — on every
+    /// record this audit and each of its clones makes from now on, so a
+    /// reader leaves the records out with the run, by what the process
+    /// declared and never by its name. A declaration is not taken back.
+    pub fn hide(&self) {
+        self.hidden.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether every record from now on says the process is hidden.
+    #[must_use]
+    pub fn hidden(&self) -> bool {
+        self.hidden.load(Ordering::Relaxed)
     }
 
     /// The file records go to, or `None` when they go to the operating
@@ -96,6 +116,7 @@ impl ProgramAudit {
             audit_id: AuditId::new(UuidV7Generator.next_u128()),
             origin: Origin {
                 location: self.location.get().cloned(),
+                hidden: self.hidden(),
                 ..self.origin.clone()
             },
             scope: None,
@@ -215,6 +236,24 @@ mod tests {
         let blank = ProgramAudit::new("probe", None);
         blank.locate("  ");
         assert_eq!(blank.location(), None);
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_hidden_program_says_so_on_every_record_its_clones_make_too() {
+        let directory =
+            std::env::temp_dir().join(format!("xmip-program-hidden-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        let audit = ProgramAudit::new("probe", Some(&directory));
+        let earlier = audit.clone();
+        audit.failed("before", "not hidden yet").expect("recorded");
+        audit.hide();
+
+        assert!(earlier.hidden(), "a clone shares the declaration");
+        earlier.failed("after", "hidden").expect("recorded");
+
+        let text = fs::read_to_string(audit.file().expect("a file")).expect("read");
+        assert_eq!(text.matches("hidden = \"true\"").count(), 1, "{text}");
         let _ = fs::remove_dir_all(&directory);
     }
 }

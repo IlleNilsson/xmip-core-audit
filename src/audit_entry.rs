@@ -27,6 +27,9 @@ pub struct AuditEntry {
     pub process: String,
     /// The scope the process declared it serves, when it serves one.
     pub location: Option<String>,
+    /// The process declared its run hidden (ADR-0028, amendment
+    /// 2026-09-30); a reader leaves the record out unless asked.
+    pub hidden: bool,
     pub action: String,
     pub phase: String,
     pub severity: String,
@@ -171,6 +174,7 @@ fn keep(entry: &mut AuditEntry, table: &Table, key: String, value: String) {
             "host" => entry.host = value,
             "process" => entry.process = value,
             "location" => entry.location = Some(value),
+            "hidden" => entry.hidden = value == "true",
             "action" => entry.action = value,
             "phase" => entry.phase = value,
             "severity" => entry.severity = value,
@@ -197,6 +201,7 @@ mod tests {
                 host: "edge-01".to_string(),
                 process: 7,
                 location: location.map(str::to_string),
+                hidden: action == "hidden",
             },
             scope: None,
             action: action.to_string(),
@@ -226,6 +231,15 @@ mod tests {
         assert_eq!(entry.message.as_deref(), Some("a \"quoted\"\nline"));
         assert_eq!(entry.properties["exception type"], "Boom");
         assert_eq!(entry.summary(), "a \"quoted\" line");
+    }
+
+    #[test]
+    fn a_hidden_process_is_read_back_hidden_and_the_rest_shown() {
+        let (entries, _) = parse(&(written("hidden", None) + &written("start", None)));
+
+        assert!(entries[0].hidden, "declared hidden");
+        assert!(!entries[1].hidden, "declared nothing");
+        assert!(!entries[0].properties.contains_key("hidden"));
     }
 
     #[test]

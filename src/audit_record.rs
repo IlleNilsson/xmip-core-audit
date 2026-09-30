@@ -58,6 +58,9 @@ impl AuditRecord {
         if let Some(location) = &self.origin.location {
             field("location", location);
         }
+        if self.origin.hidden {
+            field("hidden", "true");
+        }
         field("action", &self.action);
         field("phase", phase_word(self.phase));
         field("severity", severity_word(self.severity));
@@ -116,6 +119,9 @@ impl AuditRecord {
         if let Some(location) = &self.origin.location {
             let _ = write!(out, " at {location}");
         }
+        if self.origin.hidden {
+            out.push_str(", hidden");
+        }
         let _ = write!(
             out,
             ", audit {}, {})",
@@ -170,6 +176,7 @@ mod tests {
                 host: "edge-01".to_string(),
                 process: 42,
                 location: None,
+                hidden: false,
             },
             scope: None,
             action: "unhandled".to_string(),
@@ -249,6 +256,27 @@ mod tests {
             probe.toml()
         );
         assert!(probe.line().contains("on edge-01 at xmip:///C1/node/R1,"));
+    }
+
+    #[test]
+    fn a_hidden_process_says_so_after_its_location_and_nothing_else_does() {
+        let mut probe = record();
+        assert!(!probe.toml().contains("hidden"), "none declared");
+        probe.origin.location = Some("xmip:///CT".to_string());
+        probe.origin.hidden = true;
+
+        assert!(
+            probe
+                .toml()
+                .contains("location = \"xmip:///CT\"\nhidden = \"true\"\n"),
+            "{}",
+            probe.toml()
+        );
+        assert!(
+            probe.line().contains("at xmip:///CT, hidden,"),
+            "{}",
+            probe.line()
+        );
     }
 
     #[test]

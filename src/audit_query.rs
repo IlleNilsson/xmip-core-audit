@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codec::civil::read_rfc3339;
 use observe::Scope;
+use observe::run::shown;
 use observe::wildcard::matches;
 
 use crate::audit_column::{Column, SEVERITIES};
@@ -50,7 +51,15 @@ pub struct AuditQuery {
     pub descending: bool,
     pub offset: usize,
     pub limit: usize,
+    /// Whether the records of a run that declared itself hidden are read
+    /// too; left out unless asked (ADR-0028, amendment 2026-09-30), by the
+    /// one rule, [`observe::run::shown`].
+    pub including_hidden: bool,
 }
+
+/// The words the `hidden` key takes: leave what is hidden out, the default,
+/// or include it.
+pub const HIDDEN: [&str; 2] = ["exclude", "include"];
 
 /// A group one step down the drill from where a query stands.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +73,9 @@ pub struct AuditGroup {
     pub errors: usize,
     /// The newest record's time, as written.
     pub latest: String,
+    /// Some record in the group came from a hidden run: a reader that
+    /// included what is hidden marks the group as test.
+    pub hidden: bool,
 }
 
 /// What a query found.
@@ -86,7 +98,8 @@ impl AuditQuery {
     /// word), `action`, `from` and `to` (RFC 3339, or a date and a time with
     /// no zone, read as UTC), `sort` (a [`Column`]'s word), `order`
     /// (`ascending` or `descending`), `offset` and `limit` (at most
-    /// [`MOST`]). An empty value is no filter.
+    /// [`MOST`]), and `hidden` ([`HIDDEN`]: `include` reads the records of
+    /// a run that declared itself hidden too). An empty value is no filter.
     ///
     /// # Errors
     /// A key that is none of these, or a value its key does not take, as
@@ -126,10 +139,12 @@ impl AuditQuery {
                 }
                 "offset" => query.offset = number(key, value)?,
                 "limit" => query.limit = number(key, value)?.min(MOST),
+                "hidden" => query.including_hidden = word(key, value, &HIDDEN)? == "include",
                 other => {
                     return Err(format!(
                         "REFUSED: an audit read takes pattern, location, host, program, record, \
-                         severity, action, from, to, sort, order, offset and limit, not {other:?}."
+                         severity, action, from, to, sort, order, offset, limit and hidden, \
+                         not {other:?}."
                     ));
                 }
             }
@@ -138,15 +153,22 @@ impl AuditQuery {
         Ok(query)
     }
 
-    /// Ask `entries`.
+    /// Ask `entries`. What a hidden run recorded is not there for a query
+    /// that did not include it: not counted, not grouped, not found by its
+    /// identifier.
     #[must_use]
     pub fn ask(&self, entries: &[AuditEntry]) -> AuditPage {
+        let entries: Vec<&AuditEntry> = entries
+            .iter()
+            .filter(|entry| shown(entry.hidden, self.including_hidden))
+            .collect();
+
         if let Some(record) = &self.record {
             let records: Vec<AuditEntry> = entries
                 .iter()
                 .filter(|entry| &entry.audit_id == record)
                 .take(1)
-                .cloned()
+                .map(|entry| (*entry).clone())
                 .collect();
             return AuditPage {
                 read: entries.len(),
@@ -158,6 +180,7 @@ impl AuditQuery {
 
         let standing: Vec<&AuditEntry> = entries
             .iter()
+            .copied()
             .filter(|entry| self.who(entry) && self.narrowed(entry))
             .collect();
         let actions: BTreeSet<&str> = standing.iter().map(|entry| entry.action.as_str()).collect();
@@ -247,8 +270,10 @@ impl AuditQuery {
                 warnings: 0,
                 errors: 0,
                 latest: String::new(),
+                hidden: false,
             });
             group.count += 1;
+            group.hidden |= entry.hidden;
             group.warnings += usize::from(entry.severity == "warning");
             group.errors += usize::from(entry.severity == "error");
             if entry.at > group.latest {
@@ -509,6 +534,52 @@ mod tests {
         assert_eq!(page.read, 7);
         let most = AuditQuery::from_pairs([("limit", "99999")]).expect("a query");
         assert_eq!(most.limit, MOST);
+    }
+
+    #[test]
+    fn a_hidden_run_is_left_out_until_included_and_a_name_hides_nothing() {
+        let mut entries = store();
+        let mut hidden = entry(
+            "8",
+            8,
+            Some("xmip:///CT/node/one"),
+            "xmip-playground-CT-node-one",
+        );
+        hidden.hidden = true;
+        entries.push(hidden);
+        // A cluster called CT that declared nothing is shown like any other.
+        entries.push(entry("9", 9, Some("xmip:///CT"), "xmip-playground-CT-roll"));
+        let ask = |pairs: &[(&str, &str)]| {
+            AuditQuery::from_pairs(pairs.iter().copied())
+                .expect("a query")
+                .ask(&entries)
+        };
+
+        let left_out = ask(&[]);
+        assert_eq!((left_out.read, left_out.matched), (8, 8));
+        assert!(!ids(&left_out).contains(&"8"));
+        assert!(
+            ids(&ask(&[("record", "8")])).is_empty(),
+            "not even by its id"
+        );
+        let ct = ask(&[("location", "xmip:///CT")]);
+        assert_eq!(ids(&ct), ["9"]);
+
+        let included = ask(&[("hidden", "include")]);
+        assert_eq!(included.matched, 9);
+        let groups: Vec<(&str, bool)> = included
+            .groups
+            .iter()
+            .map(|group| (group.who.as_str(), group.hidden))
+            .collect();
+        assert!(groups.contains(&("xmip:///CT", true)), "{groups:?}");
+        assert!(groups.contains(&("xmip:///C1", false)), "{groups:?}");
+        assert_eq!(ask(&[("hidden", "exclude")]).matched, 8);
+        assert!(
+            AuditQuery::from_pairs([("hidden", "yes")])
+                .expect_err("refused")
+                .starts_with("REFUSED")
+        );
     }
 
     #[test]
