@@ -356,6 +356,7 @@ fn moment(key: &str, value: &str) -> Result<i128, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use configure::fixture::test_cluster;
 
     fn entry(id: &str, at: i128, location: Option<&str>, program: &str) -> AuditEntry {
         AuditEntry {
@@ -372,34 +373,69 @@ mod tests {
         }
     }
 
+    /// The names the store is written with, from the test cluster: its own
+    /// cluster and first node, a second cluster with a node named after
+    /// the first, and a cluster whose name the first's is a prefix of.
+    struct Names {
+        cluster: String,
+        node: String,
+        other: String,
+        later: String,
+        longer: String,
+    }
+
+    impl Names {
+        fn read() -> Self {
+            let cluster = test_cluster();
+            Self {
+                node: cluster.node(0).name.clone(),
+                other: cluster.other(),
+                later: cluster.node(1).name.clone(),
+                longer: format!("{}0", cluster.name),
+                cluster: cluster.name,
+            }
+        }
+
+        fn root(&self) -> String {
+            format!("xmip:///{}", self.cluster)
+        }
+
+        fn at(&self) -> String {
+            format!("{}/node/{}", self.root(), self.node)
+        }
+
+        fn node_program(&self) -> String {
+            program(&self.cluster, &format!("node-{}", self.node))
+        }
+    }
+
+    /// The name a playground program of `cluster` runs as (ADR-0053).
+    fn program(cluster: &str, rest: &str) -> String {
+        format!("xmip-playground-{cluster}-{rest}")
+    }
+
     fn store() -> Vec<AuditEntry> {
-        let mut failed = entry(
-            "4",
-            4,
-            Some("xmip:///C1/node/alpha"),
-            "xmip-playground-C1-node-alpha",
-        );
+        let names = Names::read();
+        let (root, at, node) = (names.root(), names.at(), names.node_program());
+        let mut failed = entry("4", 4, Some(&at), &node);
         failed.severity = "error".to_string();
         failed.phase = "failure".to_string();
         failed.action = "publish".to_string();
+        let other = format!("xmip:///{}/node/{}", names.other, names.later);
+        let longer = format!("xmip:///{}", names.longer);
         vec![
-            entry("1", 1, Some("xmip:///C1"), "xmip-playground-C1-roll"),
-            entry("2", 2, Some("xmip:///C1"), "xmip-playground-C1-cluster"),
-            entry(
-                "3",
-                3,
-                Some("xmip:///C1/node/alpha"),
-                "xmip-playground-C1-node-alpha",
-            ),
+            entry("1", 1, Some(&root), &program(&names.cluster, "roll")),
+            entry("2", 2, Some(&root), &program(&names.cluster, "cluster")),
+            entry("3", 3, Some(&at), &node),
             failed,
             entry(
                 "5",
                 5,
-                Some("xmip:///C2/node/beta"),
-                "xmip-playground-C2-node-beta",
+                Some(&other),
+                &program(&names.other, &format!("node-{}", names.later)),
             ),
             entry("6", 6, None, "Xmip"),
-            entry("7", 7, Some("xmip:///C10"), "xmip-playground-C10-roll"),
+            entry("7", 7, Some(&longer), &program(&names.longer, "roll")),
         ]
     }
 
@@ -426,30 +462,47 @@ mod tests {
     #[test]
     fn newest_first_is_the_default_and_the_top_groups_are_clusters_and_hosts() {
         let page = ask(&[]);
+        let names = Names::read();
+        let (other, longer) = (
+            format!("xmip:///{}", names.other),
+            format!("xmip:///{}", names.longer),
+        );
+        let mut clusters = [
+            ("cluster", names.root(), 4),
+            ("cluster", longer, 1),
+            ("cluster", other, 1),
+        ];
+        clusters.sort();
+        let mut wanted: Vec<(&str, &str, usize)> = clusters
+            .iter()
+            .map(|(kind, who, count)| (*kind, who.as_str(), *count))
+            .collect();
+        wanted.push(("host", "edge-01", 1));
 
         assert_eq!(ids(&page), ["7", "6", "5", "4", "3", "2", "1"]);
-        assert_eq!(
-            groups(&page),
-            [
-                ("cluster", "xmip:///C1", 4),
-                ("cluster", "xmip:///C10", 1),
-                ("cluster", "xmip:///C2", 1),
-                ("host", "edge-01", 1),
-            ]
-        );
+        assert_eq!(groups(&page), wanted);
     }
 
     #[test]
     fn a_cluster_groups_its_nodes_and_its_own_programs_by_the_declared_scope() {
-        let page = ask(&[("location", "xmip:///C1")]);
+        let names = Names::read();
+        let page = ask(&[("location", &names.root())]);
 
-        assert_eq!(ids(&page), ["4", "3", "2", "1"], "C10 is not beneath C1");
+        assert_eq!(
+            ids(&page),
+            ["4", "3", "2", "1"],
+            "a cluster whose name is longer is not beneath it"
+        );
+        let (cluster, roll) = (
+            program(&names.cluster, "cluster"),
+            program(&names.cluster, "roll"),
+        );
         assert_eq!(
             groups(&page),
             [
-                ("node", "xmip:///C1/node/alpha", 2),
-                ("program", "xmip-playground-C1-cluster", 1),
-                ("program", "xmip-playground-C1-roll", 1),
+                ("node", names.at().as_str(), 2),
+                ("program", cluster.as_str(), 1),
+                ("program", roll.as_str(), 1),
             ]
         );
         assert_eq!(page.groups[0].errors, 1);
@@ -457,16 +510,12 @@ mod tests {
 
     #[test]
     fn a_node_groups_its_programs_and_a_program_is_the_bottom() {
-        let node = ask(&[("location", "xmip:///C1/node/alpha")]);
-        assert_eq!(
-            groups(&node),
-            [("program", "xmip-playground-C1-node-alpha", 2)]
-        );
+        let names = Names::read();
+        let (at, running) = (names.at(), names.node_program());
+        let node = ask(&[("location", &at)]);
+        assert_eq!(groups(&node), [("program", running.as_str(), 2)]);
 
-        let program = ask(&[
-            ("location", "xmip:///C1/node/alpha"),
-            ("program", "xmip-playground-C1-node-alpha"),
-        ]);
+        let program = ask(&[("location", &at), ("program", &running)]);
         assert_eq!(ids(&program), ["4", "3"]);
         assert!(program.groups.is_empty());
     }
@@ -481,8 +530,13 @@ mod tests {
 
     #[test]
     fn the_pattern_is_the_one_wildcard_over_the_location() {
-        assert_eq!(ids(&ask(&[("pattern", "C1/node/*")])), ["4", "3"]);
-        assert_eq!(ids(&ask(&[("pattern", "xmip:///c1")])), ["2", "1"]);
+        let name = Names::read().cluster;
+        let (nodes, lower) = (
+            format!("{name}/node/*"),
+            format!("xmip:///{}", name.to_lowercase()),
+        );
+        assert_eq!(ids(&ask(&[("pattern", &nodes)])), ["4", "3"]);
+        assert_eq!(ids(&ask(&[("pattern", &lower)])), ["2", "1"]);
         assert_eq!(
             ask(&[("pattern", "*")]).matched,
             7,
@@ -521,7 +575,7 @@ mod tests {
         assert_eq!(
             &ids(&by_node)[..3],
             ["5", "4", "3"],
-            "beta over alpha, newest first"
+            "the later node's name over the earlier's, newest first"
         );
     }
 
@@ -538,17 +592,22 @@ mod tests {
 
     #[test]
     fn a_hidden_run_is_left_out_until_included_and_a_name_hides_nothing() {
+        let names = Names::read();
+        // A cluster of its own for the run, beside every cluster the store has.
+        let run = format!("{}-run", names.other);
+        let second = format!("xmip:///{run}");
         let mut entries = store();
         let mut hidden = entry(
             "8",
             8,
-            Some("xmip:///CT/node/one"),
-            "xmip-playground-CT-node-one",
+            Some(&format!("{second}/node/{}", names.node)),
+            &program(&run, &format!("node-{}", names.node)),
         );
         hidden.hidden = true;
         entries.push(hidden);
-        // A cluster called CT that declared nothing is shown like any other.
-        entries.push(entry("9", 9, Some("xmip:///CT"), "xmip-playground-CT-roll"));
+        // Its roll declared nothing, and is shown like any other: a name hides
+        // nothing.
+        entries.push(entry("9", 9, Some(&second), &program(&run, "roll")));
         let ask = |pairs: &[(&str, &str)]| {
             AuditQuery::from_pairs(pairs.iter().copied())
                 .expect("a query")
@@ -562,8 +621,8 @@ mod tests {
             ids(&ask(&[("record", "8")])).is_empty(),
             "not even by its id"
         );
-        let ct = ask(&[("location", "xmip:///CT")]);
-        assert_eq!(ids(&ct), ["9"]);
+        let shown = ask(&[("location", &second)]);
+        assert_eq!(ids(&shown), ["9"]);
 
         let included = ask(&[("hidden", "include")]);
         assert_eq!(included.matched, 9);
@@ -572,8 +631,9 @@ mod tests {
             .iter()
             .map(|group| (group.who.as_str(), group.hidden))
             .collect();
-        assert!(groups.contains(&("xmip:///CT", true)), "{groups:?}");
-        assert!(groups.contains(&("xmip:///C1", false)), "{groups:?}");
+        assert!(groups.contains(&(second.as_str(), true)), "{groups:?}");
+        let root = names.root();
+        assert!(groups.contains(&(root.as_str(), false)), "{groups:?}");
         assert_eq!(ask(&[("hidden", "exclude")]).matched, 8);
         assert!(
             AuditQuery::from_pairs([("hidden", "yes")])
@@ -584,7 +644,7 @@ mod tests {
 
     #[test]
     fn one_record_is_asked_by_its_identifier_whatever_else_is_asked() {
-        let page = ask(&[("record", "6"), ("location", "xmip:///C1")]);
+        let page = ask(&[("record", "6"), ("location", &Names::read().root())]);
 
         assert_eq!(ids(&page), ["6"]);
     }

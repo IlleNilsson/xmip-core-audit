@@ -25,6 +25,10 @@ observe = { package = "xmip-core-observe", git = "https://github.com/IlleNilsson
 # The event source's name, XMIP_EVENT_SOURCE, from the header that declares it.
 abi = { package = "xmip-core-abi", git = "https://github.com/IlleNilsson/xmip-core-abi", branch = "main" }
 
+[dev-dependencies]
+# The test cluster's names, from its `xmip.toml` (`configure::fixture`).
+configure = { package = "xmip-core-configure", git = "https://github.com/IlleNilsson/xmip-core-configure", branch = "main", features = ["test-support"] }
+
 # The Event Log and the registry are C interfaces, reached from one file,
 # src/windows_event_log.rs (ADR-0050, amendment 2026-09-25).
 [target.'cfg(windows)'.dependencies]

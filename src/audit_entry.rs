@@ -42,8 +42,8 @@ pub struct AuditEntry {
 
 impl AuditEntry {
     /// The node the record's process is on, by the one rule
-    /// ([`Scope::node`]): `alpha` for `xmip:///C1/node/alpha`, none for a roll,
-    /// a cluster or a program outside a cluster.
+    /// ([`Scope::node`]): `<node>` for `xmip:///<cluster>/node/<node>`, none
+    /// for a roll, a cluster or a program outside a cluster.
     #[must_use]
     pub fn node(&self) -> Option<&str> {
         self.location
@@ -191,13 +191,24 @@ mod tests {
     use super::*;
     use crate::audit_record::AuditRecord;
     use crate::origin::Origin;
+    use configure::fixture::test_cluster;
     use xcore::{AuditId, ExecutionPhase, Severity};
+
+    /// The program the test cluster's first node runs as (ADR-0053).
+    fn program() -> String {
+        let cluster = test_cluster();
+        format!(
+            "xmip-playground-{}-node-{}",
+            cluster.name,
+            cluster.node(0).name
+        )
+    }
 
     fn written(action: &str, location: Option<&str>) -> String {
         AuditRecord {
             audit_id: AuditId::new(9),
             origin: Origin {
-                program: "xmip-playground-C1-node-alpha".to_string(),
+                program: program(),
                 host: "edge-01".to_string(),
                 process: 7,
                 location: location.map(str::to_string),
@@ -216,15 +227,17 @@ mod tests {
 
     #[test]
     fn what_the_writer_writes_the_reader_reads_whole() {
-        let text = written("start", Some("xmip:///C1/node/alpha"));
+        let cluster = test_cluster();
+        let at = cluster.node_scope(0);
+        let text = written("start", Some(&at));
         let (entries, read) = parse(&text);
 
         assert_eq!(read, text.len());
         let entry = &entries[0];
-        assert_eq!(entry.program, "xmip-playground-C1-node-alpha");
-        assert_eq!(entry.location.as_deref(), Some("xmip:///C1/node/alpha"));
-        assert_eq!(entry.node(), Some("alpha"));
-        assert_eq!(entry.cluster(), Some("C1"));
+        assert_eq!(entry.program, program());
+        assert_eq!(entry.location.as_deref(), Some(at.as_str()));
+        assert_eq!(entry.node(), Some(cluster.node(0).name.as_str()));
+        assert_eq!(entry.cluster(), Some(cluster.name.as_str()));
         assert_eq!(entry.phase, "failure");
         assert_eq!(entry.severity, "error");
         assert_eq!(entry.at_nanos, 1_790_000_000_123_456_789);

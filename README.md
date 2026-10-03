@@ -23,7 +23,11 @@ takes through them and every failure. A Rust program holds a
 `program_audit::ProgramAudit` (`record`, `failed`, `watch_panics`); a .NET
 program and PowerShell reach the same one through the runtime's library,
 `xmip_operate.h` section 9 (`xmip_audit_v1`), and `Xmip.Surface`'s
-`ProgramAudit`. No program writes a record of its own.
+`ProgramAudit`. No program writes a record of its own. A record a node
+writes to Xmip Storage instead, where its Publications are audited
+(ADR-0062, amendment 2026-10-01), is an `AuditRecord` in its TOML form that
+says it came from `ProgramAudit::origin`, so a reader groups it with the
+program's own.
 
 A record made where the caller must not wait for a disk — an Event's
 delivery, a subscription closed — is handed to `keeper`, one thread in the
@@ -43,7 +47,7 @@ never reach a record (`redaction::without_credentials`).
 
 A process that belongs somewhere in Xmip says where: `ProgramAudit::locate`
 takes the location it declares (ADR-0053 clause 3) — `xmip:///C1` for a
-Playground roll or its cluster, `xmip:///C1/node/alpha` for a node or the Xmip
+Playground roll or its cluster, `xmip:///C1/node/R1` for a node or the Xmip
 Service — and every record from then on, by any clone and the panic hook's,
 carries it as `location`. A program that serves no scope — a cmdlet, the web
 host, the command line — declares none, and a reader shows its records under

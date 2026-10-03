@@ -121,7 +121,8 @@ mod tests {
     fn what_was_appended_since_is_read_and_what_was_read_is_kept() {
         let directory = scratch("grows");
         let audit = ProgramAudit::new("probe", Some(&directory));
-        audit.locate("xmip:///C1/node/alpha");
+        let at = configure::fixture::test_cluster().node_scope(0);
+        audit.locate(&at);
         let file = audit.file().expect("a file");
 
         start(&audit, "one");
@@ -132,10 +133,7 @@ mod tests {
         let entries = read(&file).expect("read");
         let actions: Vec<&str> = entries.iter().map(|entry| entry.action.as_str()).collect();
         assert_eq!(actions, ["one", "two", "three"]);
-        assert_eq!(
-            entries[2].location.as_deref(),
-            Some("xmip:///C1/node/alpha")
-        );
+        assert_eq!(entries[2].location.as_deref(), Some(at.as_str()));
 
         let _ = fs::remove_dir_all(&directory);
     }

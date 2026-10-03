@@ -5,9 +5,10 @@
 //! alone is gone with the process; the program's name and the host are not.
 //!
 //! A process that belongs somewhere in Xmip says where: the location it
-//! declared (ADR-0053 clause 3), `xmip:///C1/node/alpha` for a node, carried on
-//! every record it makes so a reader groups records by what they belong to
-//! and never by reading a program's name (ADR-0062, amendment 2026-09-29).
+//! declared (ADR-0053 clause 3), `xmip:///<cluster>/node/<node>` for a node,
+//! carried on every record it makes so a reader groups records by what they
+//! belong to and never by reading a program's name (ADR-0062, amendment
+//! 2026-09-29).
 
 use std::fs;
 
@@ -22,9 +23,10 @@ pub struct Origin {
     /// The operating system's process id.
     pub process: u32,
     /// The scope the process declared it serves (ADR-0053 clause 3):
-    /// `xmip:///C1` for a roll or its cluster, `xmip:///C1/node/alpha` for a
-    /// node. `None` for a program that serves no scope — a cmdlet, a web
-    /// host — whose records a reader shows under their host.
+    /// `xmip:///<cluster>` for a roll or its cluster,
+    /// `xmip:///<cluster>/node/<node>` for a node. `None` for a program that
+    /// serves no scope — a cmdlet, a web host — whose records a reader shows
+    /// under their host.
     pub location: Option<String>,
     /// The process belongs to a run that declared itself hidden (ADR-0028,
     /// amendment 2026-09-30): an operator's view leaves its records out

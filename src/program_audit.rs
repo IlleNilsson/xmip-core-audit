@@ -56,10 +56,10 @@ impl ProgramAudit {
     }
 
     /// Say where the process belongs — the location it declares (ADR-0053
-    /// clause 3), `xmip:///C1/node/alpha` for a node — on every record this
-    /// audit and each of its clones makes from now on, so a reader knows
-    /// whose a record is without reading the program's name (ADR-0062,
-    /// amendment 2026-09-29). A process declares once: the first location
+    /// clause 3), `xmip:///<cluster>/node/<node>` for a node — on every
+    /// record this audit and each of its clones makes from now on, so a
+    /// reader knows whose a record is without reading the program's name
+    /// (ADR-0062, amendment 2026-09-29). A process declares once: the first location
     /// stands, and a blank one is none.
     pub fn locate(&self, location: &str) {
         let location = location.trim();
@@ -89,6 +89,20 @@ impl ProgramAudit {
         self.hidden.load(Ordering::Relaxed)
     }
 
+    /// Where a record made now says it came from: the program, its host and
+    /// process, the location it declared and whether it is hidden. A record
+    /// this audit does not keep itself — one written to Xmip Storage, where
+    /// a node's Publication is audited (ADR-0062, amendment 2026-10-01) —
+    /// carries it, so a reader groups it with the program's own.
+    #[must_use]
+    pub fn origin(&self) -> Origin {
+        Origin {
+            location: self.location.get().cloned(),
+            hidden: self.hidden(),
+            ..self.origin.clone()
+        }
+    }
+
     /// The file records go to, or `None` when they go to the operating
     /// system's log.
     #[must_use]
@@ -114,11 +128,7 @@ impl ProgramAudit {
         keeper::settle();
         let record = AuditRecord {
             audit_id: AuditId::new(UuidV7Generator.next_u128()),
-            origin: Origin {
-                location: self.location.get().cloned(),
-                hidden: self.hidden(),
-                ..self.origin.clone()
-            },
+            origin: self.origin(),
             scope: None,
             action: action.to_string(),
             phase,
@@ -206,14 +216,12 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         let audit = ProgramAudit::new("probe", Some(&directory));
         let earlier = audit.clone();
-        audit.locate(" xmip:///C1/node/alpha ");
-        audit.locate("xmip:///C2");
+        let cluster = configure::fixture::test_cluster();
+        let at = cluster.node_scope(0);
+        audit.locate(&format!(" {at} "));
+        audit.locate(&format!("xmip:///{}", cluster.other()));
 
-        assert_eq!(
-            audit.location(),
-            Some("xmip:///C1/node/alpha"),
-            "the first stands"
-        );
+        assert_eq!(audit.location(), Some(at.as_str()), "the first stands");
         earlier
             .failed("publish", "could not")
             .expect("a clone made before carries it too");
@@ -229,7 +237,7 @@ mod tests {
 
         let text = fs::read_to_string(audit.file().expect("a file")).expect("read");
         assert_eq!(
-            text.matches("location = \"xmip:///C1/node/alpha\"").count(),
+            text.matches(&format!("location = \"{at}\"")).count(),
             2,
             "{text}"
         );

@@ -246,38 +246,36 @@ mod tests {
             !probe.toml().contains("location"),
             "none declared, none written"
         );
-        probe.origin.location = Some("xmip:///C1/node/alpha".to_string());
+        let at = configure::fixture::test_cluster().node_scope(0);
+        probe.origin.location = Some(at.clone());
 
         assert!(
             probe
                 .toml()
-                .contains("process = \"42\"\nlocation = \"xmip:///C1/node/alpha\"\n"),
+                .contains(&format!("process = \"42\"\nlocation = \"{at}\"\n")),
             "{}",
             probe.toml()
         );
-        assert!(
-            probe
-                .line()
-                .contains("on edge-01 at xmip:///C1/node/alpha,")
-        );
+        assert!(probe.line().contains(&format!("on edge-01 at {at},")));
     }
 
     #[test]
     fn a_hidden_process_says_so_after_its_location_and_nothing_else_does() {
         let mut probe = record();
         assert!(!probe.toml().contains("hidden"), "none declared");
-        probe.origin.location = Some("xmip:///CT".to_string());
+        let root = configure::fixture::test_cluster().scope();
+        probe.origin.location = Some(root.clone());
         probe.origin.hidden = true;
 
         assert!(
             probe
                 .toml()
-                .contains("location = \"xmip:///CT\"\nhidden = \"true\"\n"),
+                .contains(&format!("location = \"{root}\"\nhidden = \"true\"\n")),
             "{}",
             probe.toml()
         );
         assert!(
-            probe.line().contains("at xmip:///CT, hidden,"),
+            probe.line().contains(&format!("at {root}, hidden,")),
             "{}",
             probe.line()
         );

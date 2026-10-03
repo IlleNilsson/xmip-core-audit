@@ -122,7 +122,7 @@ message = "the snapshot is gone"
 ```
 
 A process that belongs somewhere in Xmip writes where, after `process`:
-`location = "xmip:///C1/node/alpha"`, the location it declared (ADR-0053 clause
+`location = "xmip:///<cluster>/node/<node>"`, the location it declared (ADR-0053 clause
 3), on every record it makes once it declared it. A program that serves no
 scope writes none. A reader groups records by it — cluster, node, program —
 and never by a program's name (ADR-0062, amendment 2026-09-29).
