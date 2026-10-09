@@ -145,7 +145,7 @@ impl AuditRecord {
 mod tests {
     use super::*;
     use crate::execution_scope::ArtifactRef;
-    use xcore::{ArtifactId, ExecutionId, JourneyId, MessageId};
+    use xcore::{ExecutionId, JourneyId, MessageId};
 
     fn record() -> AuditRecord {
         AuditRecord {
@@ -203,13 +203,10 @@ mod tests {
             journey_id: JourneyId::new(3),
             message_id: MessageId::new(4),
             artifact: ArtifactRef {
-                artifact_id: ArtifactId::new(5),
                 artifact_type: "stream",
                 name: "probe".to_string(),
                 version: None,
             },
-            node_id: None,
-            cluster_id: None,
         });
 
         let text = probe.toml();

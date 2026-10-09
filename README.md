@@ -2,10 +2,12 @@
 
 The audit record: the persistent accountability record of what Xmip did,
 where, by whom, why, when and with what outcome. An `AuditRecord` carries its
-origin — the program, host and process — its scope when it belongs to a
-Message's execution (`execution_scope::ExecutionScope`, naming the
-`ArtifactRef` that acted), its action, phase and severity; an `AuditPolicy` decides
-record or suppress; an `AuditSink` persists; `Audit` puts the three together.
+origin — the program, host and process, and the location it serves, the one
+home of its cluster and its node — its scope when it belongs to a Message's
+execution (`execution_scope::ExecutionScope`, the artifact that acted spelled
+out: its kind, name and version, no reference), its action, phase and
+severity; an `AuditPolicy` decides record or suppress; an `AuditSink` persists;
+`Audit` puts the three together.
 
 Audit is cross-cutting, not a stage, and it holds no payloads — retention
 does. It never becomes the execution bottleneck: an action emits an envelope
