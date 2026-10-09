@@ -161,6 +161,7 @@ Its body is the `[[record]]` table above; beside it travel the Message in its
 one binary form and the Streams its Sections are over
 (`persist::storage::Audited`). The audit keeper keeps each Stream's bytes
 beside the kept record, a chunk at a time and a shared Stream once, and each
-Stream's digest and length in the record, taken from the Stream's own record,
+Stream's length, chunks and digest as a row of the `audit_stream` table,
+taken from the Stream's own record,
 where the writer took the digest as the bytes passed once. A read of a copy
 that does not match its digest or its length is refused in words (`persist::storage::ChunkReader::audited`).
