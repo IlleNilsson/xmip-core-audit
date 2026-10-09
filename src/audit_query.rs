@@ -17,7 +17,9 @@ use observe::Scope;
 use observe::run::shown;
 use observe::wildcard::matches;
 
-use crate::audit_column::{Column, SEVERITIES};
+use xcore::Severity;
+
+use crate::audit_column::Column;
 use crate::audit_entry::AuditEntry;
 
 /// The most records one page carries.
@@ -126,7 +128,9 @@ impl AuditQuery {
                 "program" => query.program = text,
                 "record" => query.record = text,
                 "action" => query.action = text,
-                "severity" => query.severity = Some(word(key, value, &SEVERITIES)?),
+                "severity" => {
+                    query.severity = Some(word(key, value, &Severity::ALL.map(Severity::word))?);
+                }
                 "from" => query.from = Some(moment(key, value)?),
                 "to" => query.to = Some(moment(key, value)?),
                 "sort" => {
@@ -274,8 +278,8 @@ impl AuditQuery {
             });
             group.count += 1;
             group.hidden |= entry.hidden;
-            group.warnings += usize::from(entry.severity == "warning");
-            group.errors += usize::from(entry.severity == "error");
+            group.warnings += usize::from(entry.severity == Severity::Warning.word());
+            group.errors += usize::from(entry.severity == Severity::Error.word());
             if entry.at > group.latest {
                 group.latest.clone_from(&entry.at);
             }
@@ -319,10 +323,9 @@ fn refusal(key: &str, value: &str, words: &str) -> String {
 }
 
 fn word(key: &str, value: &str, words: &[&str]) -> Result<String, String> {
-    let lower = value.to_lowercase();
     words
         .iter()
-        .find(|word| **word == lower)
+        .find(|word| word.eq_ignore_ascii_case(value))
         .map(|word| (*word).to_string())
         .ok_or_else(|| refusal(key, value, &words.join(", ")))
 }
@@ -367,8 +370,8 @@ mod tests {
             host: "edge-01".to_string(),
             location: location.map(str::to_string),
             action: "start".to_string(),
-            phase: "begin".to_string(),
-            severity: "information".to_string(),
+            phase: "Begin".to_string(),
+            severity: "Information".to_string(),
             ..AuditEntry::default()
         }
     }
@@ -418,8 +421,8 @@ mod tests {
         let names = Names::read();
         let (root, at, node) = (names.root(), names.at(), names.node_program());
         let mut failed = entry("4", 4, Some(&at), &node);
-        failed.severity = "error".to_string();
-        failed.phase = "failure".to_string();
+        failed.severity = "Error".to_string();
+        failed.phase = "Failure".to_string();
         failed.action = "publish".to_string();
         let other = format!("xmip:///{}/node/{}", names.other, names.later);
         let longer = format!("xmip:///{}", names.longer);

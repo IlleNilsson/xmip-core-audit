@@ -1,16 +1,14 @@
 //! The columns a reader of the audit shows and sorts by, and the order of
 //! each (ADR-0062, amendment 2026-09-29): a time by its moment, a phase in
-//! lifecycle order, a severity least first, the rest as text.
+//! lifecycle order, a severity least first — each by its word, as
+//! `xcore::ExecutionPhase` and `xcore::Severity` name it, the one word list
+//! — the rest as text.
 
 use std::cmp::Ordering;
 
+use xcore::{ExecutionPhase, Severity};
+
 use crate::audit_entry::AuditEntry;
-
-/// The severities, least first, as the record model writes them.
-pub const SEVERITIES: [&str; 3] = ["information", "warning", "error"];
-
-/// The phases, in lifecycle order, as the record model writes them.
-pub const PHASES: [&str; 4] = ["begin", "execute", "finished", "failure"];
 
 /// What a record can be sorted by: the columns a reader shows.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -73,7 +71,12 @@ impl Column {
     /// does not write sorts before every word it does.
     #[must_use]
     pub fn compare(self, left: &AuditEntry, right: &AuditEntry) -> Ordering {
-        let rank = |words: &[&str], word: &str| words.iter().position(|each| *each == word);
+        let phase = |word: &str| {
+            ExecutionPhase::ALL
+                .iter()
+                .position(|each| each.word() == word)
+        };
+        let severity = |word: &str| Severity::ALL.iter().position(|each| each.word() == word);
         match self {
             Self::At => left.at_nanos.cmp(&right.at_nanos),
             Self::Location => left.location.cmp(&right.location),
@@ -81,10 +84,8 @@ impl Column {
             Self::Program => left.program.cmp(&right.program),
             Self::Host => left.host.cmp(&right.host),
             Self::Action => left.action.cmp(&right.action),
-            Self::Phase => rank(&PHASES, &left.phase).cmp(&rank(&PHASES, &right.phase)),
-            Self::Severity => {
-                rank(&SEVERITIES, &left.severity).cmp(&rank(&SEVERITIES, &right.severity))
-            }
+            Self::Phase => phase(&left.phase).cmp(&phase(&right.phase)),
+            Self::Severity => severity(&left.severity).cmp(&severity(&right.severity)),
             Self::Summary => left.summary().cmp(&right.summary()),
         }
     }
@@ -110,7 +111,7 @@ mod tests {
             severity: severity.to_string(),
             ..AuditEntry::default()
         };
-        let (begin, failure) = (entry("begin", "error"), entry("failure", "warning"));
+        let (begin, failure) = (entry("Begin", "Error"), entry("Failure", "Warning"));
 
         assert_eq!(Column::Phase.compare(&begin, &failure), Ordering::Less);
         assert_eq!(

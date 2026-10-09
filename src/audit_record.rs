@@ -62,8 +62,8 @@ impl AuditRecord {
             field("hidden", "true");
         }
         field("action", &self.action);
-        field("phase", phase_word(self.phase));
-        field("severity", severity_word(self.severity));
+        field("phase", self.phase.word());
+        field("severity", self.severity.word());
 
         if let Some(message) = &self.message {
             field("message", message);
@@ -99,8 +99,8 @@ impl AuditRecord {
         let mut out = format!(
             "{} {} {}",
             self.action,
-            phase_word(self.phase),
-            severity_word(self.severity)
+            self.phase.word(),
+            self.severity.word()
         );
 
         if let Some(message) = &self.message {
@@ -138,27 +138,6 @@ impl AuditRecord {
                 }
             })
             .collect()
-    }
-}
-
-/// A phase as the record model writes it.
-#[must_use]
-pub const fn phase_word(phase: ExecutionPhase) -> &'static str {
-    match phase {
-        ExecutionPhase::Begin => "begin",
-        ExecutionPhase::Execute => "execute",
-        ExecutionPhase::Finished => "finished",
-        ExecutionPhase::Failure => "failure",
-    }
-}
-
-/// A severity as the record model writes it.
-#[must_use]
-pub const fn severity_word(severity: Severity) -> &'static str {
-    match severity {
-        Severity::Information => "information",
-        Severity::Warning => "warning",
-        Severity::Error => "error",
     }
 }
 
@@ -204,7 +183,7 @@ mod tests {
 
         assert!(text.starts_with("[[record]]\n"), "{text}");
         assert!(text.contains("program = \"Xmip.Gui.Web\"\n"), "{text}");
-        assert!(text.contains("phase = \"failure\"\n"), "{text}");
+        assert!(text.contains("phase = \"Failure\"\n"), "{text}");
         assert!(
             text.contains("message = \"a \\\"quoted\\\"\\nline\"\n"),
             "{text}"
@@ -287,7 +266,7 @@ mod tests {
 
         assert!(!line.contains('\n'), "{line}");
         assert!(
-            line.starts_with("unhandled failure error: a \"quoted\" line"),
+            line.starts_with("unhandled Failure Error: a \"quoted\" line"),
             "{line}"
         );
         assert!(line.contains("exception type=Boom"), "{line}");

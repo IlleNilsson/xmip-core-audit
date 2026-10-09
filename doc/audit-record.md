@@ -119,13 +119,18 @@ program = "xmip-gui-web"
 host = "edge-01"
 process = "39800"
 action = "error logged"
-phase = "failure"
-severity = "error"
+phase = "Failure"
+severity = "Error"
 message = "the snapshot is gone"
 [record.properties]
 "category" = "Microsoft.AspNetCore.Components.Server.Circuits.CircuitHost"
 "exception" = "System.InvalidOperationException"
 ```
+
+A phase and a severity are written as their words as `xcore::ExecutionPhase`
+and `xcore::Severity` name them — `Begin`, `Execute`, `Finished`, `Failure`;
+`Information`, `Warning`, `Error` — the one word list every reader, query
+and surface takes (2026-10-09).
 
 A process that belongs somewhere in Xmip writes where, after `process`:
 `location = "xmip:///<cluster>/node/<node>"`, the location it declared (ADR-0053 clause

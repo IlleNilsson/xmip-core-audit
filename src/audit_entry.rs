@@ -238,8 +238,8 @@ mod tests {
         assert_eq!(entry.location.as_deref(), Some(at.as_str()));
         assert_eq!(entry.node(), Some(cluster.node(0).name.as_str()));
         assert_eq!(entry.cluster(), Some(cluster.name.as_str()));
-        assert_eq!(entry.phase, "failure");
-        assert_eq!(entry.severity, "error");
+        assert_eq!(entry.phase, "Failure");
+        assert_eq!(entry.severity, "Error");
         assert_eq!(entry.at_nanos, 1_790_000_000_123_456_789);
         assert_eq!(entry.message.as_deref(), Some("a \"quoted\"\nline"));
         assert_eq!(entry.properties["exception type"], "Boom");
