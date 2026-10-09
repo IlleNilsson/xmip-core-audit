@@ -9,8 +9,12 @@ out: its kind, name and version, no reference), its action, phase and
 severity; an `AuditPolicy` decides record or suppress; an `AuditSink` persists;
 `Audit` puts the three together.
 
-Audit is cross-cutting, not a stage, and it holds no payloads — retention
-does. It never becomes the execution bottleneck: an action emits an envelope
+Audit is cross-cutting, not a stage. A record of an act on a Message holds
+that Message and its Stream's bytes, spelled out as they were, with the
+Stream's SHA-256 digest so the copy is verified when read (ADR-0070): a
+node's record of a Publication or a Replay, which Xmip Storage keeps with
+them (`persist::storage::Audited`; `doc/audit-record.md`). A program's own
+record holds none. It never becomes the execution bottleneck: an action emits an envelope
 and this crate persists independently of it. Failures are always audited and
 failure records are always persisted; that is not policy, and `Audit` holds
 it: a record in the Failure phase, or an Error at any phase, is kept whatever
