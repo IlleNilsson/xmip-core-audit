@@ -153,14 +153,14 @@ record the sink refused is still somewhere an operator can read.
 ## A record of an act on a Message
 
 An audit record of an act on a Message carries that Message in full, as it
-was at the audited event, and its Stream's bytes with their SHA-256 digest
+was at the audited event, and every Stream's bytes with their SHA-256 digest
 and length, so an auditor reads the untarnished data and the copy is verified
 when it is read (ADR-0070, clauses 1, 2 as amended and 4). A node writes such
 a record through Xmip Storage, not to a file: a Publication's and a Replay's.
 Its body is the `[[record]]` table above; beside it travel the Message in its
-one binary form and the Stream it is over (`persist::storage::Audited`). The
-audit keeper keeps the Stream's bytes beside the kept record, a chunk at a
-time, and the digest and length in its `stream_digest` and `stream_length`
-columns, taken from the Stream's own record, where the writer took the digest
-as the bytes passed once. A read of the copy that does not match its digest
-or its length is refused in words (`persist::storage::ChunkReader::audited`).
+one binary form and the Streams its Sections are over
+(`persist::storage::Audited`). The audit keeper keeps each Stream's bytes
+beside the kept record, a chunk at a time and a shared Stream once, and each
+Stream's digest and length in the record, taken from the Stream's own record,
+where the writer took the digest as the bytes passed once. A read of a copy
+that does not match its digest or its length is refused in words (`persist::storage::ChunkReader::audited`).
