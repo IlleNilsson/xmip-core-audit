@@ -14,8 +14,13 @@ use codec::civil::rfc3339_nanos;
 use codec::toml::quote;
 use xcore::{AuditId, ExecutionPhase, Severity};
 
+use crate::audit_chain::{Digest, digest, written};
 use crate::execution_scope::ExecutionScope;
 use crate::origin::Origin;
+
+/// The key a chained record's own digest is written under: the one line
+/// its canonical form leaves out.
+pub const DIGEST_KEY: &str = "digest";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuditRecord {
@@ -44,13 +49,42 @@ impl AuditRecord {
     /// document that grows by appending.
     #[must_use]
     pub fn toml(&self) -> String {
+        self.table(None).0
+    }
+
+    /// The record as the file sink appends it, in `writer`'s audit chain
+    /// at `position`, after the record whose digest is `previous`
+    /// (ADR-0070 clause 5): its table with `writer`, `position` and
+    /// `previous` after its identifier, and its own digest after them —
+    /// the SHA-256 of the table as it is without that one line, its
+    /// canonical form. The table, and the digest.
+    #[must_use]
+    pub fn chained(&self, writer: &str, position: u64, previous: &Digest) -> (String, Digest) {
+        let (canonical, at) = self.table(Some((writer, position, previous)));
+        let own = digest(canonical.as_bytes());
+        let line = format!("{DIGEST_KEY} = {}\n", quote(&written(&own)));
+        (
+            format!("{}{line}{}", &canonical[..at], &canonical[at..]),
+            own,
+        )
+    }
+
+    /// The table, with the chain's fields where they are given, and where
+    /// a digest line goes in it: after them.
+    fn table(&self, chain: Option<(&str, u64, &Digest)>) -> (String, usize) {
         let mut out = String::from("[[record]]\n");
+        // Writing to a String cannot fail.
+        let _ = writeln!(out, "audit_id = {}", quote(&self.audit_id.to_string()));
+        if let Some((writer, position, previous)) = chain {
+            let _ = writeln!(out, "writer = {}", quote(writer));
+            let _ = writeln!(out, "position = {}", quote(&position.to_string()));
+            let _ = writeln!(out, "previous = {}", quote(&written(previous)));
+        }
+        let at = out.len();
         let mut field = |key: &str, value: &str| {
-            // Writing to a String cannot fail.
             let _ = writeln!(out, "{key} = {}", quote(value));
         };
 
-        field("audit_id", &self.audit_id.to_string());
         field("at", &rfc3339_nanos(self.timestamp_unix_nanos));
         field("program", &self.origin.program);
         field("host", &self.origin.host);
@@ -89,7 +123,7 @@ impl AuditRecord {
         }
 
         out.push('\n');
-        out
+        (out, at)
     }
 
     /// The record as one line of text: what happened first, then where it

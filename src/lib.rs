@@ -23,7 +23,12 @@
 //! sorted by any column and paged (ADR-0062, amendment 2026-09-29). Who a
 //! record is, is the location its process declared, which
 //! [`program_audit::ProgramAudit::locate`] puts on every record.
+//!
+//! The audit log is a chain, one per writer ([`audit_chain`]; ADR-0070
+//! clause 5): the file sink chains each record it appends, and one walk says
+//! where a chain breaks, for the file and for what Xmip Storage keeps.
 
+pub mod audit_chain;
 pub mod audit_column;
 pub mod audit_entry;
 pub mod audit_query;
@@ -31,6 +36,7 @@ pub mod audit_record;
 pub mod audit_store;
 pub mod emit;
 pub mod execution_scope;
+mod file_chain;
 pub mod file_sink;
 pub mod keeper;
 pub mod operating_system_log;

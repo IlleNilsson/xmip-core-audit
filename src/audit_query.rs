@@ -19,6 +19,7 @@ use observe::wildcard::matches;
 
 use xcore::Severity;
 
+use crate::audit_chain::{Verdict, chains};
 use crate::audit_column::Column;
 use crate::audit_entry::AuditEntry;
 
@@ -57,7 +58,14 @@ pub struct AuditQuery {
     /// too; left out unless asked (ADR-0028, amendment 2026-09-30), by the
     /// one rule, [`observe::run::shown`].
     pub including_hidden: bool,
+    /// Whether the audit chain of every writer of the records it matched
+    /// is walked whole and said (ADR-0070 clause 5): the `verify` act.
+    pub verify: bool,
 }
+
+/// The words the `verify` key takes: walk no chain, the default, or walk
+/// them.
+pub const VERIFY: [&str; 2] = ["no", "yes"];
 
 /// The words the `hidden` key takes: leave what is hidden out, the default,
 /// or include it.
@@ -92,6 +100,9 @@ pub struct AuditPage {
     /// Every action where the query stands, whatever its action filter says:
     /// what a reader offers to choose from.
     pub actions: Vec<String>,
+    /// Where the query asked to verify: the chain of each writer of the
+    /// records it matched, walked whole, in the order of its first record.
+    pub chains: Vec<Verdict>,
 }
 
 impl AuditQuery {
@@ -101,7 +112,9 @@ impl AuditQuery {
     /// no zone, read as UTC), `sort` (a [`Column`]'s word), `order`
     /// (`ascending` or `descending`), `offset` and `limit` (at most
     /// [`MOST`]), and `hidden` ([`HIDDEN`]: `include` reads the records of
-    /// a run that declared itself hidden too). An empty value is no filter.
+    /// a run that declared itself hidden too), and `verify` ([`VERIFY`]:
+    /// `yes` walks the audit chain of each writer of the records matched).
+    /// An empty value is no filter.
     ///
     /// # Errors
     /// A key that is none of these, or a value its key does not take, as
@@ -144,11 +157,12 @@ impl AuditQuery {
                 "offset" => query.offset = number(key, value)?,
                 "limit" => query.limit = number(key, value)?.min(MOST),
                 "hidden" => query.including_hidden = word(key, value, &HIDDEN)? == "include",
+                "verify" => query.verify = word(key, value, &VERIFY)? == "yes",
                 other => {
                     return Err(format!(
                         "REFUSED: an audit read takes pattern, location, host, program, record, \
-                         severity, action, from, to, sort, order, offset, limit and hidden, \
-                         not {other:?}."
+                         severity, action, from, to, sort, order, offset, limit, hidden and \
+                         verify, not {other:?}."
                     ));
                 }
             }
@@ -161,8 +175,8 @@ impl AuditQuery {
     /// that did not include it: not counted, not grouped, not found by its
     /// identifier.
     #[must_use]
-    pub fn ask(&self, entries: &[AuditEntry]) -> AuditPage {
-        let entries: Vec<&AuditEntry> = entries
+    pub fn ask(&self, all: &[AuditEntry]) -> AuditPage {
+        let entries: Vec<&AuditEntry> = all
             .iter()
             .filter(|entry| shown(entry.hidden, self.including_hidden))
             .collect();
@@ -177,6 +191,7 @@ impl AuditQuery {
             return AuditPage {
                 read: entries.len(),
                 matched: records.len(),
+                chains: self.verified(all, records.iter()),
                 records,
                 ..AuditPage::default()
             };
@@ -201,6 +216,7 @@ impl AuditQuery {
         } else {
             self.groups(&matched)
         };
+        let chains = self.verified(all, matched.iter().copied());
 
         matched.sort_by(|left, right| {
             let order = self
@@ -226,7 +242,28 @@ impl AuditQuery {
                 .collect(),
             groups,
             actions: actions.into_iter().map(str::to_string).collect(),
+            chains,
         }
+    }
+
+    /// Where the query verifies, the chain of each writer of `matched`,
+    /// walked over every record of `all`, a hidden run's among them: one
+    /// left out would read as deleted.
+    fn verified<'a>(
+        &self,
+        all: &[AuditEntry],
+        matched: impl Iterator<Item = &'a AuditEntry>,
+    ) -> Vec<Verdict> {
+        if !self.verify {
+            return Vec::new();
+        }
+        let mut writers: Vec<&str> = Vec::new();
+        for writer in matched.filter_map(|entry| entry.writer.as_deref()) {
+            if !writers.contains(&writer) {
+                writers.push(writer);
+            }
+        }
+        chains(all, &writers)
     }
 
     /// Whether the record is who the query stands at.
@@ -674,5 +711,26 @@ mod tests {
         assert_eq!(at("2026-09-29T14:00"), at("2026-09-29T14:00:00Z"));
         assert_eq!(at("2026-09-29T14:00:05"), at("2026-09-29T14:00:05Z"));
         assert_eq!(at("2026-09-29T16:00:00+02:00"), at("2026-09-29T14:00:00Z"));
+    }
+
+    #[test]
+    fn verify_walks_the_chain_of_each_writer_matched_and_only_when_asked() {
+        let mut records = store();
+        for (position, record) in (1..).zip(records.iter_mut().take(2)) {
+            record.writer = Some("probe".to_string());
+            record.position = Some(position);
+        }
+        let asked = |pairs: &[(&str, &str)]| {
+            let query = AuditQuery::from_pairs(pairs.iter().copied()).expect("taken");
+            query.ask(&records).chains
+        };
+
+        assert!(asked(&[]).is_empty(), "verify is asked for");
+        let chains = asked(&[("verify", "yes"), ("record", "1")]);
+        assert_eq!(chains.len(), 1, "one writer matched");
+        assert_eq!(chains[0].writer, "probe");
+        assert_eq!(chains[0].records, 2, "walked whole, not the page");
+        let refused = AuditQuery::from_pairs([("verify", "maybe")]).expect_err("no word");
+        assert!(refused.starts_with("REFUSED: verify"), "{refused}");
     }
 }

@@ -12,6 +12,8 @@
 
 use std::fs;
 
+use observe::Scope;
+
 /// The program, host and process an audit record came from.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Origin {
@@ -47,6 +49,18 @@ impl Origin {
             hidden: false,
         }
     }
+
+    /// Whose audit chain a record from here is in (ADR-0070 clause 5,
+    /// amended 2026-10-10: *one chain per writer*): the node's, by the
+    /// location it declared, where that location is a node's
+    /// (`observe::Scope::node`); else the program's, by its name.
+    #[must_use]
+    pub fn writer(&self) -> String {
+        self.location
+            .as_deref()
+            .filter(|location| Scope::new(location).node().is_some())
+            .map_or_else(|| self.program.clone(), str::to_string)
+    }
 }
 
 /// The machine's name: what Windows and most shells export, else what Linux
@@ -76,5 +90,16 @@ mod tests {
         assert_eq!(origin.program, "probe");
         assert_eq!(origin.process, std::process::id());
         assert!(!origin.host.is_empty());
+    }
+
+    #[test]
+    fn the_writer_is_the_node_where_one_is_declared_else_the_program() {
+        let cluster = configure::fixture::test_cluster();
+        let mut origin = Origin::here("probe");
+        assert_eq!(origin.writer(), "probe", "no location");
+        origin.location = Some(cluster.scope());
+        assert_eq!(origin.writer(), "probe", "a cluster is no writer");
+        origin.location = Some(cluster.node_scope(0));
+        assert_eq!(origin.writer(), cluster.node_scope(0));
     }
 }

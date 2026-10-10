@@ -49,6 +49,39 @@ names, else nowhere. The estate's tooling sets the variable to
 `.local-work/audit` for everything it starts. An address's user and password
 never reach a record (`redaction::without_credentials`).
 
+## The audit log is a chain, one per writer (ADR-0070 clause 5)
+
+Every record carries its place in its writer's chain (amended 2026-10-10:
+*one chain per writer*): the writer — `Origin::writer`, the location the
+process declared where it is a node's, else the program's name — its number
+there from 1, the SHA-256 digest of the record before it in that chain
+(`previous`, 64 zeros for the first) and its own (`digest`). The rule is
+`audit_chain`, here once: `digest` is the SHA-256 of a record's canonical
+form, and `walk` takes one writer's records in the order the log holds them
+and says, in one sentence opening OK or FAILED, the first place the chain
+breaks — a record whose content does not match its digest (changed), one
+whose number skips (deleted before it), one out of its order, or one whose
+`previous` is not the digest of the record before it — or that it is whole.
+
+**In `audit.toml`** the file sink forms the chain as it appends: holding
+`audit.lock`, a file beside it, it reads where the writer's chain stands —
+what was appended since this process last looked, or, for a writer it has
+not met, the file read back from its end to that writer's last record, so a
+program started again goes on from its last record — and appends the record
+after it in one write (`file_chain`). The canonical form is the record's
+`[[record]]` table exactly as written, its blank line with it, without the
+one line `digest = "…"`; `writer`, `position` and `previous` stand after
+`audit_id`, and `digest` after them. **In Xmip Storage** a node's records
+are chained by the audit keeper as it keeps them, over a canonical form of
+its own that holds the record's row and its Streams' records
+(`persist::storage::chain_digest`); the walk is this one.
+
+Asked `verify` (`yes`), `AuditQuery` walks the chain of each writer of the
+records it matched over every record in the file, a hidden run's among
+them, read from the file's bytes as they are now (`audit_store::read_whole`);
+the page's `chains` carry each verdict. `xmip-cli audit --verify`,
+`Get-XmipAudit -Verify` and the Audit view's *verify chains* are that query.
+
 ## Whose a record is, and reading it back (ADR-0062, amendment 2026-09-29)
 
 A process that belongs somewhere in Xmip says where: `ProgramAudit::locate`

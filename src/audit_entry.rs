@@ -14,6 +14,9 @@ use codec::civil::read_rfc3339;
 use codec::toml::unquote_prefix;
 use observe::Scope;
 
+use crate::audit_chain::{Digest, FIRST, Link, digest, read as read_digest};
+use crate::audit_record::DIGEST_KEY;
+
 /// One record as the file holds it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AuditEntry {
@@ -38,9 +41,34 @@ pub struct AuditEntry {
     /// to text; empty for a program's own act.
     pub scope: BTreeMap<String, String>,
     pub properties: BTreeMap<String, String>,
+    /// Whose audit chain it is in, its number there, and the digests it
+    /// carries — the one before it and its own (ADR-0070 clause 5); `None`
+    /// where it carries none.
+    pub writer: Option<String>,
+    pub position: Option<u64>,
+    pub previous: Option<Digest>,
+    pub digest: Option<Digest>,
+    /// The digest its canonical form has as read: its table without the
+    /// line of its own digest.
+    pub computed: Digest,
 }
 
 impl AuditEntry {
+    /// The record as its writer's chain holds it, where it names a
+    /// writer. A part of its place it lacks reads as none, which its
+    /// canonical form, lacking the line too, does not match.
+    #[must_use]
+    pub fn link(&self) -> Option<Link> {
+        self.writer.as_ref()?;
+        Some(Link {
+            record: self.audit_id.clone(),
+            position: self.position.unwrap_or_default(),
+            previous: self.previous.unwrap_or(FIRST),
+            digest: self.digest.unwrap_or(FIRST),
+            computed: self.computed,
+        })
+    }
+
     /// The node the record's process is on, by the one rule
     /// ([`Scope::node`]): `<node>` for `xmip:///<cluster>/node/<node>`, none
     /// for a roll, a cluster or a program outside a cluster.
@@ -109,30 +137,47 @@ enum Table {
 pub fn parse(text: &str) -> (Vec<AuditEntry>, usize) {
     let read = text.rfind("\n\n").map_or(0, |at| at + 2);
     let mut entries = Vec::new();
-    let mut entry: Option<AuditEntry> = None;
+    // The record being read, and its canonical form so far: its table as
+    // written, without the line of its own digest (ADR-0070 clause 5).
+    let mut entry: Option<(AuditEntry, String)> = None;
     let mut table = Table::Other;
 
-    for line in text[..read].lines().map(str::trim) {
+    for written in text[..read].split_inclusive('\n') {
+        let line = written.trim();
+        if line == "[[record]]" {
+            entries.extend(entry.take().map(digested));
+            entry = Some((AuditEntry::default(), String::new()));
+            table = Table::Record;
+        }
+        let Some((entry, canonical)) = entry.as_mut() else {
+            continue;
+        };
         match line {
-            "" => {}
-            "[[record]]" => {
-                entries.extend(entry.take());
-                entry = Some(AuditEntry::default());
-                table = Table::Record;
-            }
+            "" | "[[record]]" => {}
             "[record.scope]" => table = Table::Scope,
             "[record.properties]" => table = Table::Properties,
             _ if line.starts_with('[') => table = Table::Other,
             _ => {
-                if let (Some(entry), Some((key, value))) = (entry.as_mut(), pair(line)) {
+                if let Some((key, value)) = pair(line) {
+                    if matches!(table, Table::Record) && key == DIGEST_KEY {
+                        entry.digest = read_digest(&value);
+                        continue;
+                    }
                     keep(entry, &table, key, value);
                 }
             }
         }
+        canonical.push_str(written);
     }
 
-    entries.extend(entry);
+    entries.extend(entry.map(digested));
     (entries, read)
+}
+
+/// A record read whole, with the digest its canonical form has.
+fn digested((mut entry, canonical): (AuditEntry, String)) -> AuditEntry {
+    entry.computed = digest(canonical.as_bytes());
+    entry
 }
 
 /// One `key = "value"` line: a bare key or a quoted one, then a basic
@@ -179,6 +224,9 @@ fn keep(entry: &mut AuditEntry, table: &Table, key: String, value: String) {
             "phase" => entry.phase = value,
             "severity" => entry.severity = value,
             "message" => entry.message = Some(value),
+            "writer" => entry.writer = Some(value),
+            "position" => entry.position = value.parse().ok(),
+            "previous" => entry.previous = read_digest(&value),
             _ => {
                 entry.properties.insert(key, value);
             }

@@ -7,12 +7,16 @@
 //! else none — and with none, [`crate::emit::Audit`] sends the record to
 //! the operating system's log. The estate's own tooling sets the variable
 //! to `.local-work/audit` for everything it starts.
+//!
+//! Each record is appended in its writer's audit chain, holding the lock
+//! beside the file (`crate::file_chain`; ADR-0070 clause 5).
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::audit_record::AuditRecord;
+use crate::file_chain::{self, LOCK_NAME};
 use crate::{AuditError, AuditSink};
 
 /// The environment variable that names the audit directory when a program
@@ -69,16 +73,33 @@ impl AuditSink for FileSink {
         };
 
         fs::create_dir_all(&self.directory).map_err(refused)?;
+        self.chained(record).map_err(refused)
+    }
+}
 
-        // One write of the whole table in append mode: two programs appending
-        // at once each land whole, because the operating system appends each
-        // write at the end as one piece.
-        OpenOptions::new()
+impl FileSink {
+    /// Append `record` in its writer's audit chain (ADR-0070 clause 5):
+    /// holding the lock beside the file, read where the chain stands and
+    /// append the record after it, in one write of the whole table.
+    fn chained(&self, record: &AuditRecord) -> std::io::Result<()> {
+        let lock = OpenOptions::new()
             .create(true)
-            .append(true)
-            .open(self.path())
-            .and_then(|mut file| file.write_all(record.toml().as_bytes()))
-            .map_err(refused)
+            .truncate(false)
+            .write(true)
+            .open(self.directory.join(LOCK_NAME))?;
+        lock.lock()?;
+        let path = self.path();
+        let writer = record.origin.writer();
+        let (position, previous) = file_chain::head(&path, &writer)?;
+        let (table, own) = record.chained(&writer, position + 1, &previous);
+        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        file.write_all(table.as_bytes())?;
+        let length = file.metadata()?.len();
+        drop(file);
+        file_chain::appended(&path, &writer, (position + 1, own), length);
+        // The lock ends as it is dropped, after the write.
+        drop(lock);
+        Ok(())
     }
 }
 

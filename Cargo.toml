@@ -25,6 +25,11 @@ observe = { package = "xmip-core-observe", git = "https://github.com/IlleNilsson
 # The event source's name, XMIP_EVENT_SOURCE, from the header that declares it.
 abi = { package = "xmip-core-abi", git = "https://github.com/IlleNilsson/xmip-core-abi", branch = "main" }
 
+# SHA-256 over each record's canonical form, which chains it to the one
+# before it in its writer's audit chain (ADR-0070 clause 5); the crate
+# Xmip Storage and the archive checksum use.
+sha2 = "0.11"
+
 [dev-dependencies]
 # The test cluster's names, from its `xmip.toml` (`configure::fixture`).
 configure = { package = "xmip-core-configure", git = "https://github.com/IlleNilsson/xmip-core-configure", branch = "main", features = ["test-support"] }

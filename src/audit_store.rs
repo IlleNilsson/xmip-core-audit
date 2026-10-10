@@ -82,6 +82,24 @@ pub fn read(file: &Path) -> Result<Arc<Vec<AuditEntry>>, AuditError> {
     Ok(Arc::clone(&kept.entries))
 }
 
+/// Every record `file` holds, read whole from its bytes now, past what this
+/// process kept: what a verification of the audit chains walks (ADR-0070
+/// clause 5), since a record changed in place leaves the file as long as it
+/// was and [`read`] would answer what it kept.
+///
+/// # Errors
+/// As [`read`].
+pub fn read_whole(file: &Path) -> Result<Arc<Vec<AuditEntry>>, AuditError> {
+    match std::fs::read(file) {
+        Ok(bytes) => Ok(Arc::new(parse(&String::from_utf8_lossy(&bytes)).0)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Arc::new(Vec::new())),
+        Err(error) => Err(AuditError::new(format!(
+            "{} could not be read: {error}",
+            file.display()
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

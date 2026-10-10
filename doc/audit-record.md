@@ -114,6 +114,10 @@ On disk a record is one TOML table, appended:
 ```toml
 [[record]]
 audit_id = "01a0d72a-3f6f-7613-9a1b-1824ccbedc90"
+writer = "xmip-gui-web"
+position = "12"
+previous = "<the SHA-256 of record 11's canonical form, 64 hex digits>"
+digest = "<this record's, 64 hex digits>"
 at = "2026-09-25T06:04:25.327773900Z"
 program = "xmip-gui-web"
 host = "edge-01"
@@ -126,6 +130,12 @@ message = "the snapshot is gone"
 "category" = "Microsoft.AspNetCore.Components.Server.Circuits.CircuitHost"
 "exception" = "System.InvalidOperationException"
 ```
+
+`writer`, `position`, `previous` and `digest` are the record's place in its
+writer's audit chain (ADR-0070 clause 5, amended 2026-10-10): the writer, its
+number there, the digest of the record before it and its own, the SHA-256 of
+the table as written without the `digest` line. The README beside this file
+says how the chain is formed and walked.
 
 A phase and a severity are written as their words as `xcore::ExecutionPhase`
 and `xcore::Severity` name them — `Begin`, `Execute`, `Finished`, `Failure`;
@@ -165,3 +175,9 @@ Stream's length, chunks and digest as a row of the `audit_stream` table,
 taken from the Stream's own record,
 where the writer took the digest as the bytes passed once. A read of a copy
 that does not match its digest or its length is refused in words (`persist::storage::ChunkReader::audited`).
+The record's body — its record and the Message — is kept the same way, in
+chunks of the runtime's Stream chunk in `audit_body_chunk`, its length,
+chunks and digest in its row, read a chunk at a time and held to them
+(`ChunkReader::audit_body`; ADR-0070, amendment 2026-10-10: *The audit body
+has to be like the stream, in chunks*). The keeper chains each record in its
+writer's chain as it keeps it.
