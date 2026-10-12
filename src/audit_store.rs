@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::AuditError;
-use crate::audit_entry::{AuditEntry, parse};
+use crate::audit_entry::{AuditEntry, Parsed, parse};
 use crate::file_sink::FileSink;
 
 /// What was read of one file, and how far.
@@ -71,8 +71,7 @@ pub fn read(file: &Path) -> Result<Arc<Vec<AuditEntry>>, AuditError> {
     opened.seek(SeekFrom::Start(kept.read)).map_err(refused)?;
     let mut appended = Vec::new();
     opened.read_to_end(&mut appended).map_err(refused)?;
-    let text = String::from_utf8_lossy(&appended);
-    let (entries, read) = parse(&text);
+    let Parsed { entries, read, .. } = parse(&appended);
 
     if read > 0 {
         Arc::make_mut(&mut kept.entries).extend(entries);
@@ -85,14 +84,16 @@ pub fn read(file: &Path) -> Result<Arc<Vec<AuditEntry>>, AuditError> {
 /// Every record `file` holds, read whole from its bytes now, past what this
 /// process kept: what a verification of the audit chains walks (ADR-0070
 /// clause 5), since a record changed in place leaves the file as long as it
-/// was and [`read`] would answer what it kept.
+/// was and [`read`] would answer what it kept. Its fragments are said with
+/// it, each from its byte in the file: the bytes a write left unfinished,
+/// which are in no chain and which a verification says apart from them.
 ///
 /// # Errors
 /// As [`read`].
-pub fn read_whole(file: &Path) -> Result<Arc<Vec<AuditEntry>>, AuditError> {
+pub fn read_whole(file: &Path) -> Result<Parsed, AuditError> {
     match std::fs::read(file) {
-        Ok(bytes) => Ok(Arc::new(parse(&String::from_utf8_lossy(&bytes)).0)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Arc::new(Vec::new())),
+        Ok(bytes) => Ok(parse(&bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Parsed::default()),
         Err(error) => Err(AuditError::new(format!(
             "{} could not be read: {error}",
             file.display()
