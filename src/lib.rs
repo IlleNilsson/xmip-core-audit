@@ -26,11 +26,14 @@
 //!
 //! The audit log is a chain, one per writer ([`audit_chain`]; ADR-0070
 //! clause 5): the file sink chains each record it appends, and one walk says
-//! where a chain breaks, for the file and for what Xmip Storage keeps.
+//! where a chain breaks, for the file and for what Xmip Storage keeps. A
+//! write left unfinished is sealed apart by the next append and said by a
+//! verification apart from the chains ([`audit_fragment`]).
 
 pub mod audit_chain;
 pub mod audit_column;
 pub mod audit_entry;
+pub mod audit_fragment;
 pub mod audit_query;
 pub mod audit_record;
 pub mod audit_store;

@@ -7,6 +7,8 @@
 //! The file is written a whole table at a time and every table ends with a
 //! blank line, so [`parse`] reads up to the last blank line and says how far
 //! it read: what follows it is a table still being appended, read next time.
+//! A table a write left unfinished, sealed by the next append, is read as a
+//! fragment, not a record (`crate::audit_fragment`).
 
 use std::collections::BTreeMap;
 
@@ -15,6 +17,7 @@ use codec::toml::unquote_prefix;
 use observe::Scope;
 
 use crate::audit_chain::{Digest, FIRST, Link, digest, read as read_digest};
+use crate::audit_fragment::{BOUNDARY, Fragment, sealed, tables};
 use crate::audit_record::DIGEST_KEY;
 
 /// One record as the file holds it.
@@ -130,19 +133,65 @@ enum Table {
     Other,
 }
 
-/// The records `text` holds up to its last blank line, and the byte length
-/// of what was read: everything after it is left for the next read. A line
-/// that is not a key and a basic string is passed over.
+/// What [`parse`] read.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Parsed {
+    /// The whole records, in the order written.
+    pub entries: Vec<AuditEntry>,
+    /// The byte length read: up to the last blank line.
+    pub read: usize,
+    /// The bytes that are no whole record: each sealed fragment, and what
+    /// follows the last blank line, in the order written.
+    pub fragments: Vec<Fragment>,
+}
+
+/// The records `bytes` hold up to their last blank line, and the byte
+/// length of what was read: everything after it is left for the next read,
+/// and said as an unsealed [`Fragment`]. A sealed fragment is said, never
+/// read as a record. A line that is not a key and a basic string is passed
+/// over.
 #[must_use]
-pub fn parse(text: &str) -> (Vec<AuditEntry>, usize) {
-    let read = text.rfind("\n\n").map_or(0, |at| at + 2);
-    let mut entries = Vec::new();
+pub fn parse(bytes: &[u8]) -> Parsed {
+    let read = bytes
+        .windows(BOUNDARY.len())
+        .rposition(|pair| pair == BOUNDARY)
+        .map_or(0, |at| at + BOUNDARY.len());
+    let mut parsed = Parsed {
+        read,
+        ..Parsed::default()
+    };
+    let mut offset = 0;
+    for table in tables(&bytes[..read]) {
+        let text = String::from_utf8_lossy(table);
+        if sealed(&text) {
+            parsed.fragments.push(Fragment {
+                offset,
+                length: table.len(),
+                sealed: true,
+            });
+        } else {
+            entries(&text, &mut parsed.entries);
+        }
+        offset += table.len();
+    }
+    if read < bytes.len() {
+        parsed.fragments.push(Fragment {
+            offset: read,
+            length: bytes.len() - read,
+            sealed: false,
+        });
+    }
+    parsed
+}
+
+/// The records of `text`, one table or more, appended to `entries`.
+fn entries(text: &str, entries: &mut Vec<AuditEntry>) {
     // The record being read, and its canonical form so far: its table as
     // written, without the line of its own digest (ADR-0070 clause 5).
     let mut entry: Option<(AuditEntry, String)> = None;
     let mut table = Table::Other;
 
-    for written in text[..read].split_inclusive('\n') {
+    for written in text.split_inclusive('\n') {
         let line = written.trim();
         if line == "[[record]]" {
             entries.extend(entry.take().map(digested));
@@ -171,7 +220,6 @@ pub fn parse(text: &str) -> (Vec<AuditEntry>, usize) {
     }
 
     entries.extend(entry.map(digested));
-    (entries, read)
 }
 
 /// A record read whole, with the digest its canonical form has.
@@ -278,7 +326,7 @@ mod tests {
         let cluster = test_cluster();
         let at = cluster.node_scope(0);
         let text = written("start", Some(&at));
-        let (entries, read) = parse(&text);
+        let Parsed { entries, read, .. } = parse(text.as_bytes());
 
         assert_eq!(read, text.len());
         let entry = &entries[0];
@@ -296,7 +344,8 @@ mod tests {
 
     #[test]
     fn a_hidden_process_is_read_back_hidden_and_the_rest_shown() {
-        let (entries, _) = parse(&(written("hidden", None) + &written("start", None)));
+        let both = written("hidden", None) + &written("start", None);
+        let entries = parse(both.as_bytes()).entries;
 
         assert!(entries[0].hidden, "declared hidden");
         assert!(!entries[1].hidden, "declared nothing");
@@ -307,16 +356,26 @@ mod tests {
     fn a_table_still_being_appended_is_left_for_the_next_read() {
         let whole = written("start", None);
         let torn = format!("{whole}{}", &written("stop", None)[..40]);
-        let (entries, read) = parse(&torn);
+        let Parsed {
+            entries,
+            read,
+            fragments,
+        } = parse(torn.as_bytes());
 
         assert_eq!(entries.len(), 1);
         assert_eq!(read, whole.len());
         assert_eq!(entries[0].node(), None, "no location, no node");
+        let open = Fragment {
+            offset: whole.len(),
+            length: 40,
+            sealed: false,
+        };
+        assert_eq!(fragments, [open], "said, not passed over");
     }
 
     #[test]
     fn a_program_outside_a_cluster_has_no_node_and_no_cluster() {
-        let (entries, _) = parse(&written("probe", None));
+        let entries = parse(written("probe", None).as_bytes()).entries;
 
         assert_eq!(entries[0].cluster(), None);
         assert_eq!(entries[0].location, None);
@@ -343,7 +402,7 @@ mod tests {
     #[test]
     fn a_line_that_is_no_pair_is_passed_over() {
         let text = "[[record]]\naction = \"start\"\nnonsense\nphase = 1\n\n";
-        let (entries, _) = parse(text);
+        let entries = parse(text.as_bytes()).entries;
 
         assert_eq!(entries[0].action, "start");
         assert_eq!(entries[0].phase, "");

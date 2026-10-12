@@ -9,12 +9,15 @@
 //! to `.local-work/audit` for everything it starts.
 //!
 //! Each record is appended in its writer's audit chain, holding the lock
-//! beside the file (`crate::file_chain`; ADR-0070 clause 5).
+//! beside the file (`crate::file_chain`; ADR-0070 clause 5), and never onto
+//! a table a write left unfinished: that is sealed apart first, its bytes
+//! kept as written (`crate::audit_fragment`).
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use crate::audit_fragment::{BOUNDARY, sealing};
 use crate::audit_record::AuditRecord;
 use crate::file_chain::{self, LOCK_NAME};
 use crate::{AuditError, AuditSink};
@@ -79,8 +82,9 @@ impl AuditSink for FileSink {
 
 impl FileSink {
     /// Append `record` in its writer's audit chain (ADR-0070 clause 5):
-    /// holding the lock beside the file, read where the chain stands and
-    /// append the record after it, in one write of the whole table.
+    /// holding the lock beside the file, seal an unfinished table the file
+    /// ends in, read where the chain stands and append the record after
+    /// it, in one write of the whole table.
     fn chained(&self, record: &AuditRecord) -> std::io::Result<()> {
         let lock = OpenOptions::new()
             .create(true)
@@ -89,10 +93,15 @@ impl FileSink {
             .open(self.directory.join(LOCK_NAME))?;
         lock.lock()?;
         let path = self.path();
+        let mut file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .append(true)
+            .open(&path)?;
+        seal(&mut file)?;
         let writer = record.origin.writer();
         let (position, previous) = file_chain::head(&path, &writer)?;
         let (table, own) = record.chained(&writer, position + 1, &previous);
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
         file.write_all(table.as_bytes())?;
         let length = file.metadata()?.len();
         drop(file);
@@ -100,6 +109,21 @@ impl FileSink {
         // The lock ends as it is dropped, after the write.
         drop(lock);
         Ok(())
+    }
+}
+
+/// End the unfinished table `file` ends in, where it ends in one: its bytes
+/// kept as written, then the seal, so they stand apart as a fragment and
+/// the record after them is not written onto them (`crate::audit_fragment`).
+fn seal(file: &mut File) -> std::io::Result<()> {
+    let length = file.metadata()?.len();
+    let mut end = [0; BOUNDARY.len()];
+    let last = end.len().min(usize::try_from(length).unwrap_or(usize::MAX));
+    file.seek(SeekFrom::End(-i64::try_from(last).unwrap_or_default()))?;
+    file.read_exact(&mut end[..last])?;
+    match sealing(&end[..last]) {
+        Some(seal) => file.write_all(seal.as_bytes()),
+        None => Ok(()),
     }
 }
 

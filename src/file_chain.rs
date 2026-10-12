@@ -9,7 +9,9 @@
 //! the whole history. A writer this process has not met yet is found by
 //! reading back from the end of the file to its last record: the last
 //! record of its chain, wherever the writer restarted. A file that got
-//! shorter was replaced, and is looked at again.
+//! shorter was replaced, and is looked at again. A record whose write was
+//! interrupted is no record: sealed apart, it is in no chain, and the next
+//! record of its writer goes on from the last whole one.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -27,6 +29,9 @@ pub const LOCK_NAME: &str = "audit.lock";
 /// How much of the file's end is read first to find a writer's last
 /// record; four times more each time it is not there.
 const WINDOW: u64 = 64 * 1024;
+
+/// A table's first line, with the end of the line before it.
+const HEADER: &[u8] = b"\n[[record]]\n";
 
 /// A chain's last record: its number and its digest. Number 0 and
 /// [`FIRST`] where the writer has none.
@@ -70,7 +75,7 @@ pub(crate) fn head(path: &Path, writer: &str) -> io::Result<Head> {
         && length > tail.length
     {
         let appended = read_from(file, tail.length, length)?;
-        for entry in parse(&appended).0 {
+        for entry in parse(&appended).entries {
             if let Some(writer) = entry.writer.clone() {
                 tail.heads.insert(writer, head_of(&entry));
             }
@@ -106,12 +111,12 @@ fn head_of(entry: &AuditEntry) -> Head {
     )
 }
 
-/// The text from `start` to `end`.
-fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<String> {
+/// The bytes from `start` to `end`.
+fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(start))?;
     let mut bytes = Vec::new();
     file.take(end - start).read_to_end(&mut bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(bytes)
 }
 
 /// `writer`'s last record, read back from the end of the file a window at
@@ -120,14 +125,17 @@ fn from_the_end(file: &mut File, length: u64, writer: &str) -> io::Result<Head> 
     let mut window = WINDOW;
     loop {
         let start = length.saturating_sub(window);
-        let text = read_from(file, start, length)?;
+        let bytes = read_from(file, start, length)?;
         let from = if start == 0 {
             0
         } else {
-            text.find("\n[[record]]\n").map_or(text.len(), |at| at + 1)
+            bytes
+                .windows(HEADER.len())
+                .position(|header| header == HEADER)
+                .map_or(bytes.len(), |at| at + 1)
         };
-        let found = parse(&text[from..])
-            .0
+        let found = parse(&bytes[from..])
+            .entries
             .iter()
             .rev()
             .find(|entry| entry.writer.as_deref() == Some(writer))
@@ -189,7 +197,7 @@ mod tests {
 
     fn verdicts(path: &Path, writers: &[&str]) -> Vec<Verdict> {
         let text = fs::read_to_string(path).expect("read");
-        chains(&parse(&text).0, writers)
+        chains(&parse(text.as_bytes()).entries, writers)
     }
 
     /// Four records of the program `probe`, in `directory`.
@@ -222,7 +230,7 @@ mod tests {
         let directory = scratch("broken");
         let (_, path) = four(&directory);
         let written = tables(&path);
-        let id = |table: &str| parse(table).0[0].audit_id.clone();
+        let id = |table: &str| parse(table.as_bytes()).entries[0].audit_id.clone();
 
         let deleted = [&written[0], &written[1], &written[3]];
         fs::write(&path, deleted.map(String::as_str).concat()).expect("written");
@@ -313,6 +321,80 @@ mod tests {
         assert!(!verdicts[0].whole(), "the program's lost its second");
         assert!(verdicts[1].whole(), "{}", verdicts[1].said());
         assert_eq!(verdicts[1].records, 3);
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn an_interrupted_record_is_sealed_apart_and_the_chain_goes_on_from_the_last_whole_one() {
+        let directory = scratch("interrupted");
+        let (audit, path) = four(&directory);
+        act(&audit, "five");
+        let written = tables(&path);
+        let before: String = written[..4].concat();
+        // The fifth record's write, interrupted inside a line.
+        let cut = &written[4][..written[4].len() / 2];
+        assert!(!cut.ends_with('\n'), "{cut}");
+        fs::write(&path, format!("{before}{cut}")).expect("written");
+
+        forget(&path);
+        let again = ProgramAudit::new("probe", Some(&directory));
+        act(&again, "six");
+
+        let bytes = fs::read(&path).expect("read");
+        assert_eq!(
+            &bytes[..before.len() + cut.len()],
+            format!("{before}{cut}").as_bytes()
+        );
+        let read = parse(&bytes);
+        let actions: Vec<&str> = read.entries.iter().map(|e| e.action.as_str()).collect();
+        assert_eq!(actions, ["one", "two", "three", "four", "six"]);
+        let six = &read.entries[4];
+        assert_eq!(
+            six.position,
+            Some(5),
+            "number 5 again: the fifth was never whole"
+        );
+        assert_eq!(six.previous, read.entries[3].digest, "chained to four");
+
+        let whole = crate::audit_store::read_whole(&path).expect("read");
+        let verdict = &chains(&whole.entries, &["probe"])[0];
+        assert!(verdict.whole(), "{}", verdict.said());
+        assert_eq!(verdict.records, 5);
+        let sealed = &whole.fragments[..];
+        assert_eq!(sealed.len(), 1, "{sealed:?}");
+        assert!(sealed[0].sealed);
+        assert_eq!(sealed[0].offset, before.len());
+        assert!(sealed[0].length > cut.len());
+        assert!(
+            sealed[0].said().starts_with("FAILED: "),
+            "{}",
+            sealed[0].said()
+        );
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn an_unfinished_end_is_said_apart_from_a_whole_chain() {
+        let directory = scratch("unfinished");
+        let (_, path) = four(&directory);
+        let length = fs::metadata(&path).expect("there").len();
+        let mut text = fs::read_to_string(&path).expect("read");
+        text.push_str("[[record]]\naudit_id = \"0");
+        fs::write(&path, &text).expect("written");
+
+        let whole = crate::audit_store::read_whole(&path).expect("read");
+        let verdict = &chains(&whole.entries, &["probe"])[0];
+        assert!(verdict.whole(), "{}", verdict.said());
+        assert_eq!(verdict.records, 4);
+        let open = &whole.fragments[..];
+        assert_eq!(open.len(), 1, "{open:?}");
+        assert!(!open[0].sealed);
+        assert_eq!(open[0].offset as u64, length);
+        assert!(
+            open[0].said().starts_with("UNFINISHED: "),
+            "{}",
+            open[0].said()
+        );
         let _ = fs::remove_dir_all(&directory);
     }
 }
