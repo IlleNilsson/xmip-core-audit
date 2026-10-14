@@ -111,7 +111,7 @@ mod tests {
             why.starts_with("Xmip audit could not persist this record ("),
             "{why}"
         );
-        assert!(!record.line().is_empty());
+        assert_ne!(record.line(), "");
         Ok("this test".to_string())
     }
 

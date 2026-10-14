@@ -89,7 +89,7 @@ mod tests {
 
         assert_eq!(origin.program, "probe");
         assert_eq!(origin.process, std::process::id());
-        assert!(!origin.host.is_empty());
+        assert_ne!(origin.host, "");
     }
 
     #[test]
