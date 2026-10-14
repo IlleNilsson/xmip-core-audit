@@ -557,7 +557,7 @@ mod tests {
 
         let program = ask(&[("location", &at), ("program", &running)]);
         assert_eq!(ids(&program), ["4", "3"]);
-        assert!(program.groups.is_empty());
+        assert_eq!(program.groups, [] as [AuditGroup; 0]);
     }
 
     #[test]
