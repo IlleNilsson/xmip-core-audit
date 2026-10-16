@@ -173,66 +173,105 @@ struct Gap {
 /// makes it a reordering; either is reported where the gap is.
 #[must_use]
 pub fn walk(writer: &str, links: impl IntoIterator<Item = Link>) -> Verdict {
-    let mut verdict = Verdict {
-        writer: writer.to_string(),
-        records: 0,
-        broken: None,
-    };
-    let mut expected = 1;
-    let mut previous = FIRST;
-    let mut gap: Option<Gap> = None;
+    let mut walker = Walker::new(writer);
     for link in links {
-        verdict.records += 1;
-        if let Some(open) = &gap {
+        if !walker.step(link) {
+            break;
+        }
+    }
+    walker.verdict()
+}
+
+/// One writer's chain walked a record at a time, holding only where it
+/// stands — what [`walk`] is, for a log read a piece at a time, so a walk
+/// over a long history holds one record of it, not the history.
+pub struct Walker {
+    verdict: Verdict,
+    expected: u64,
+    previous: Digest,
+    gap: Option<Gap>,
+}
+
+impl Walker {
+    /// A walk of `writer`'s chain that has read nothing yet.
+    #[must_use]
+    pub fn new(writer: &str) -> Self {
+        Self {
+            verdict: Verdict {
+                writer: writer.to_string(),
+                records: 0,
+                broken: None,
+            },
+            expected: 1,
+            previous: FIRST,
+            gap: None,
+        }
+    }
+
+    /// Read the next record of the chain; `false` once the chain is broken,
+    /// after which nothing more is read.
+    pub fn step(&mut self, link: Link) -> bool {
+        if self.verdict.broken.is_some() {
+            return false;
+        }
+        self.verdict.records += 1;
+        if let Some(open) = &self.gap {
             if (open.from..=open.to).contains(&link.position) {
-                verdict.broken = Some(Break::OutOfOrder {
+                self.verdict.broken = Some(Break::OutOfOrder {
                     record: link.record,
                     position: link.position,
                     after: open.position,
                 });
-                return verdict;
+                return false;
             }
-            continue;
+            return true;
         }
         let broken = if link.computed != link.digest {
             Break::Changed {
                 record: link.record,
                 position: link.position,
             }
-        } else if link.position < expected {
+        } else if link.position < self.expected {
             Break::OutOfOrder {
                 record: link.record,
                 position: link.position,
-                after: expected - 1,
+                after: self.expected - 1,
             }
-        } else if link.position > expected {
-            gap = Some(Gap {
+        } else if link.position > self.expected {
+            self.gap = Some(Gap {
                 record: link.record,
                 position: link.position,
-                from: expected,
+                from: self.expected,
                 to: link.position - 1,
             });
-            continue;
-        } else if link.previous != previous {
+            return true;
+        } else if link.previous != self.previous {
             Break::Unlinked {
                 record: link.record,
                 position: link.position,
             }
         } else {
-            expected += 1;
-            previous = link.digest;
-            continue;
+            self.expected += 1;
+            self.previous = link.digest;
+            return true;
         };
-        verdict.broken = Some(broken);
-        return verdict;
+        self.verdict.broken = Some(broken);
+        false
     }
-    verdict.broken = gap.map(|gap| Break::Deleted {
-        record: gap.record,
-        position: gap.position,
-        from: gap.from,
-        to: gap.to,
-    });
-    verdict
+
+    /// What the walk found: a gap still open at the end is a deletion.
+    #[must_use]
+    pub fn verdict(mut self) -> Verdict {
+        if self.verdict.broken.is_none() {
+            self.verdict.broken = self.gap.map(|gap| Break::Deleted {
+                record: gap.record,
+                position: gap.position,
+                from: gap.from,
+                to: gap.to,
+            });
+        }
+        self.verdict
+    }
 }
 
 /// The chains of `writers` in the records of one log — the file sink's,
@@ -240,18 +279,25 @@ pub fn walk(writer: &str, links: impl IntoIterator<Item = Link>) -> Verdict {
 /// in the order the writers are given. A record that names no writer is in
 /// no chain.
 #[must_use]
-pub fn chains(entries: &[AuditEntry], writers: &[&str]) -> Vec<Verdict> {
-    let mut links: HashMap<&str, Vec<Link>> = writers.iter().map(|w| (*w, Vec::new())).collect();
+pub fn chains<'a>(
+    entries: impl IntoIterator<Item = &'a AuditEntry>,
+    writers: &[&str],
+) -> Vec<Verdict> {
+    let mut walkers: HashMap<&str, Walker> = writers.iter().map(|w| (*w, Walker::new(w))).collect();
     for entry in entries {
         if let (Some(writer), Some(link)) = (entry.writer.as_deref(), entry.link())
-            && let Some(chain) = links.get_mut(writer)
+            && let Some(walker) = walkers.get_mut(writer)
         {
-            chain.push(link);
+            walker.step(link);
         }
     }
     writers
         .iter()
-        .map(|writer| walk(writer, links.remove(writer).unwrap_or_default()))
+        .map(|writer| {
+            walkers
+                .remove(writer)
+                .map_or_else(|| Walker::new(writer).verdict(), Walker::verdict)
+        })
         .collect()
 }
 

@@ -16,11 +16,12 @@
 //! record made where the caller must not wait for a disk is handed to the
 //! [`keeper`], one thread that keeps records in order.
 //!
-//! A reader reads the same file back: [`audit_store::read`] keeps what it
-//! read and reads only what was appended since, [`audit_entry::AuditEntry`]
-//! is a record read back, and [`audit_query::AuditQuery`] is what every
-//! surface asks of it — who, the scope pattern, severity, action and time,
-//! sorted by any column and paged (ADR-0062, amendment 2026-09-29). Who a
+//! A reader reads the same file back: [`audit_query::AuditQuery`] is what
+//! every surface asks of it — who, the scope pattern, severity, action and
+//! time, sorted by any column and paged (ADR-0062, amendment 2026-09-29) —
+//! [`audit_store::ask`] answers it a page at a time from the file through
+//! an index bounded in bytes, never holding the history, and
+//! [`audit_entry::AuditEntry`] is a record read back. Who a
 //! record is, is the location its process declared, which
 //! [`program_audit::ProgramAudit::locate`] puts on every record.
 //!
@@ -30,13 +31,20 @@
 //! write left unfinished is sealed apart by the next append and said by a
 //! verification apart from the chains ([`audit_fragment`]).
 
+mod audit_block;
+mod audit_cache;
 pub mod audit_chain;
 pub mod audit_column;
 pub mod audit_entry;
 pub mod audit_fragment;
+mod audit_index;
+mod audit_lookup;
+mod audit_page;
 pub mod audit_query;
 pub mod audit_record;
+mod audit_scan;
 pub mod audit_store;
+mod audit_tally;
 pub mod emit;
 pub mod execution_scope;
 mod file_chain;
