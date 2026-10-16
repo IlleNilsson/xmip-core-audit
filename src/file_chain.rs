@@ -356,11 +356,13 @@ mod tests {
         );
         assert_eq!(six.previous, read.entries[3].digest, "chained to four");
 
-        let whole = crate::audit_store::read_whole(&path).expect("read");
-        let verdict = &chains(&whole.entries, &["probe"])[0];
+        let mut entries = Vec::new();
+        let fragments =
+            crate::audit_store::each(&path, |entry| entries.push(entry.clone())).expect("read");
+        let verdict = &chains(&entries, &["probe"])[0];
         assert!(verdict.whole(), "{}", verdict.said());
         assert_eq!(verdict.records, 5);
-        let sealed = &whole.fragments[..];
+        let sealed = &fragments[..];
         assert_eq!(sealed.len(), 1, "{sealed:?}");
         assert!(sealed[0].sealed);
         assert_eq!(sealed[0].offset, before.len());
@@ -382,11 +384,13 @@ mod tests {
         text.push_str("[[record]]\naudit_id = \"0");
         fs::write(&path, &text).expect("written");
 
-        let whole = crate::audit_store::read_whole(&path).expect("read");
-        let verdict = &chains(&whole.entries, &["probe"])[0];
+        let mut entries = Vec::new();
+        let fragments =
+            crate::audit_store::each(&path, |entry| entries.push(entry.clone())).expect("read");
+        let verdict = &chains(&entries, &["probe"])[0];
         assert!(verdict.whole(), "{}", verdict.said());
         assert_eq!(verdict.records, 4);
-        let open = &whole.fragments[..];
+        let open = &fragments[..];
         assert_eq!(open.len(), 1, "{open:?}");
         assert!(!open[0].sealed);
         assert_eq!(open[0].offset as u64, length);

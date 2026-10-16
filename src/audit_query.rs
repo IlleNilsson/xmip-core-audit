@@ -9,8 +9,13 @@
 //! ways. Who a record is, is what its process declared ([`AuditEntry`]'s
 //! location), and a record with none is its host's: nothing is read out of a
 //! program's name (the estate's rule, capability not name).
+//!
+//! The words and the rules a record is asked by are here, once; how a
+//! question is answered is [`crate::audit_scan`], over records in hand or a
+//! file read through once, and [`crate::audit_page`], over the file a page
+//! at a time through the store's index ([`crate::audit_store`]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Ordering;
 
 use codec::civil::read_rfc3339;
 use observe::Scope;
@@ -19,9 +24,10 @@ use observe::wildcard::matches;
 
 use xcore::Severity;
 
-use crate::audit_chain::{Verdict, chains};
+use crate::audit_chain::Verdict;
 use crate::audit_column::Column;
 use crate::audit_entry::AuditEntry;
+use crate::audit_fragment::Fragment;
 
 /// The most records one page carries.
 pub const MOST: usize = 1_000;
@@ -103,6 +109,9 @@ pub struct AuditPage {
     /// Where the query asked to verify: the chain of each writer of the
     /// records it matched, walked whole, in the order of its first record.
     pub chains: Vec<Verdict>,
+    /// Where the query asked to verify: the bytes of the file that are no
+    /// whole record, each said apart from the chains (ADR-0070 clause 5).
+    pub fragments: Vec<Fragment>,
 }
 
 impl AuditQuery {
@@ -171,103 +180,8 @@ impl AuditQuery {
         Ok(query)
     }
 
-    /// Ask `entries`. What a hidden run recorded is not there for a query
-    /// that did not include it: not counted, not grouped, not found by its
-    /// identifier.
-    #[must_use]
-    pub fn ask(&self, all: &[AuditEntry]) -> AuditPage {
-        let entries: Vec<&AuditEntry> = all
-            .iter()
-            .filter(|entry| shown(entry.hidden, self.including_hidden))
-            .collect();
-
-        if let Some(record) = &self.record {
-            let records: Vec<AuditEntry> = entries
-                .iter()
-                .filter(|entry| &entry.audit_id == record)
-                .take(1)
-                .map(|entry| (*entry).clone())
-                .collect();
-            return AuditPage {
-                read: entries.len(),
-                matched: records.len(),
-                chains: self.verified(all, records.iter()),
-                records,
-                ..AuditPage::default()
-            };
-        }
-
-        let standing: Vec<&AuditEntry> = entries
-            .iter()
-            .copied()
-            .filter(|entry| self.who(entry) && self.narrowed(entry))
-            .collect();
-        let actions: BTreeSet<&str> = standing.iter().map(|entry| entry.action.as_str()).collect();
-        let mut matched: Vec<&AuditEntry> = standing
-            .into_iter()
-            .filter(|entry| {
-                self.action
-                    .as_deref()
-                    .is_none_or(|action| entry.action == action)
-            })
-            .collect();
-        let groups = if self.program.is_some() {
-            Vec::new()
-        } else {
-            self.groups(&matched)
-        };
-        let chains = self.verified(all, matched.iter().copied());
-
-        matched.sort_by(|left, right| {
-            let order = self
-                .sort
-                .compare(left, right)
-                .then(left.at_nanos.cmp(&right.at_nanos))
-                .then_with(|| left.audit_id.cmp(&right.audit_id));
-            if self.descending {
-                order.reverse()
-            } else {
-                order
-            }
-        });
-
-        AuditPage {
-            read: entries.len(),
-            matched: matched.len(),
-            records: matched
-                .into_iter()
-                .skip(self.offset)
-                .take(self.limit)
-                .cloned()
-                .collect(),
-            groups,
-            actions: actions.into_iter().map(str::to_string).collect(),
-            chains,
-        }
-    }
-
-    /// Where the query verifies, the chain of each writer of `matched`,
-    /// walked over every record of `all`, a hidden run's among them: one
-    /// left out would read as deleted.
-    fn verified<'a>(
-        &self,
-        all: &[AuditEntry],
-        matched: impl Iterator<Item = &'a AuditEntry>,
-    ) -> Vec<Verdict> {
-        if !self.verify {
-            return Vec::new();
-        }
-        let mut writers: Vec<&str> = Vec::new();
-        for writer in matched.filter_map(|entry| entry.writer.as_deref()) {
-            if !writers.contains(&writer) {
-                writers.push(writer);
-            }
-        }
-        chains(all, &writers)
-    }
-
     /// Whether the record is who the query stands at.
-    fn who(&self, entry: &AuditEntry) -> bool {
+    pub(crate) fn who(&self, entry: &AuditEntry) -> bool {
         let located = match (&self.location, &entry.location) {
             (Some(asked), Some(at)) => Scope::new(asked).contains(Scope::new(at)),
             (Some(_), None) => false,
@@ -285,8 +199,9 @@ impl AuditQuery {
         located && hosted && program
     }
 
-    /// Whether the record passes the filters that are not who.
-    fn narrowed(&self, entry: &AuditEntry) -> bool {
+    /// Whether the record passes the filters that are neither who nor
+    /// time: the pattern and the severity.
+    pub(crate) fn untimed(&self, entry: &AuditEntry) -> bool {
         self.pattern
             .as_ref()
             .is_none_or(|pattern| matches(entry.location.as_deref().unwrap_or(""), pattern))
@@ -294,39 +209,46 @@ impl AuditQuery {
                 .severity
                 .as_ref()
                 .is_none_or(|severity| &entry.severity == severity)
-            && self.from.is_none_or(|from| entry.at_nanos >= from)
-            && self.to.is_none_or(|to| entry.at_nanos <= to)
     }
 
-    /// The groups one step down from where the query stands.
-    fn groups(&self, matched: &[&AuditEntry]) -> Vec<AuditGroup> {
-        let mut groups: BTreeMap<(u8, String), AuditGroup> = BTreeMap::new();
+    /// Whether the record's time is within `from` and `to`.
+    pub(crate) fn timed(&self, at_nanos: i128) -> bool {
+        self.from.is_none_or(|from| at_nanos >= from) && self.to.is_none_or(|to| at_nanos <= to)
+    }
 
-        for entry in matched {
-            let (rank, kind, who) = self.group_of(entry);
-            let group = groups.entry((rank, who.clone())).or_insert(AuditGroup {
-                kind,
-                who,
-                count: 0,
-                warnings: 0,
-                errors: 0,
-                latest: String::new(),
-                hidden: false,
-            });
-            group.count += 1;
-            group.hidden |= entry.hidden;
-            group.warnings += usize::from(entry.severity == Severity::Warning.word());
-            group.errors += usize::from(entry.severity == Severity::Error.word());
-            if entry.at > group.latest {
-                group.latest.clone_from(&entry.at);
-            }
+    /// Whether the record is where the query stands: shown, who, and
+    /// within every filter but the action.
+    pub(crate) fn standing(&self, entry: &AuditEntry) -> bool {
+        shown(entry.hidden, self.including_hidden)
+            && self.who(entry)
+            && self.untimed(entry)
+            && self.timed(entry.at_nanos)
+    }
+
+    /// Whether the record is of the action asked, where one is.
+    pub(crate) fn acted(&self, entry: &AuditEntry) -> bool {
+        self.action
+            .as_deref()
+            .is_none_or(|action| entry.action == action)
+    }
+
+    /// The order a page is in: by the sorted column, ties to the time and
+    /// then the identifier, the greatest first where the query descends.
+    pub(crate) fn order(&self, left: &AuditEntry, right: &AuditEntry) -> Ordering {
+        let order = self
+            .sort
+            .compare(left, right)
+            .then(left.at_nanos.cmp(&right.at_nanos))
+            .then_with(|| left.audit_id.cmp(&right.audit_id));
+        if self.descending {
+            order.reverse()
+        } else {
+            order
         }
-
-        groups.into_values().collect()
     }
 
     /// Which group a record falls in, and the rank its kind sorts by.
-    fn group_of(&self, entry: &AuditEntry) -> (u8, &'static str, String) {
+    pub(crate) fn group_of(&self, entry: &AuditEntry) -> (u8, &'static str, String) {
         let program = || (3, "program", entry.program.clone());
 
         if self.host.is_some() {
@@ -482,7 +404,7 @@ mod tests {
     fn ask(pairs: &[(&str, &str)]) -> AuditPage {
         AuditQuery::from_pairs(pairs.iter().copied())
             .expect("a query")
-            .ask(&store())
+            .ask(store())
     }
 
     fn ids(page: &AuditPage) -> Vec<&str> {
@@ -600,7 +522,7 @@ mod tests {
             to: Some(high),
             ..AuditQuery::from_pairs([]).expect("a query")
         };
-        assert_eq!(ids(&query.ask(&store())), ["5", "4", "3"]);
+        assert_eq!(ids(&query.ask(store())), ["5", "4", "3"]);
     }
 
     #[test]

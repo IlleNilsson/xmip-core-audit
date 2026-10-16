@@ -75,6 +75,16 @@ pub fn sealed(table: &str) -> bool {
     table.trim_end_matches('\n').rsplit('\n').next() == Some(SEAL)
 }
 
+/// Where the whole tables of `bytes` end: after its last [`BOUNDARY`], or
+/// `None` where it holds none. What follows is a table still being written.
+#[must_use]
+pub fn whole(bytes: &[u8]) -> Option<usize> {
+    bytes
+        .windows(BOUNDARY.len())
+        .rposition(|pair| pair == BOUNDARY)
+        .map(|at| at + BOUNDARY.len())
+}
+
 /// The tables in `bytes`, each up to and with the [`BOUNDARY`] that ends
 /// it; the last one without it where `bytes` does not end at one.
 pub fn tables(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {

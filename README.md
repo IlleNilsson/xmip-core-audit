@@ -41,6 +41,13 @@ process that keeps records in the order they were handed over
 (`keeper::later`); `keeper::settle` waits for them, and a direct
 `ProgramAudit::record` settles first, so a program's records are kept in the
 order it made them and the record of its stop after everything before it.
+The keeper's inbox is bounded: it holds at most `keeper::INBOX` (4,096)
+hand-overs waiting, and when it is full the one handing over waits for room.
+Nothing is dropped and nothing is refused: a record is evidence, a writer's
+chain proves its log complete (ADR-0070 clause 5), and the operating
+system's log is for when audit cannot persist, not for when it is behind
+(ADR-0062 clause 3). The keeper's own thread never waits for itself, and a
+job that panics does not end it.
 
 A program's records go to `file_sink::FileSink` — `audit.toml`, one
 `[[record]]` table per record, in the directory the program was told (its
@@ -78,8 +85,10 @@ its own that holds the record's row and its Streams' records
 
 Asked `verify` (`yes`), `AuditQuery` walks the chain of each writer of the
 records it matched over every record in the file, a hidden run's among
-them, read from the file's bytes as they are now (`audit_store::read_whole`);
-the page's `chains` carry each verdict. `xmip-cli audit --verify`,
+them, read from the file's bytes as they are now, a piece at a time
+(`audit_store::each`), holding where each chain stands and never the file;
+the page's `chains` carry each verdict and its `fragments` the bytes no
+write finished. `xmip-cli audit --verify`,
 `Get-XmipAudit -Verify` and the Audit view's *verify chains* are that query.
 
 ## Whose a record is, and reading it back (ADR-0062, amendment 2026-09-29)
@@ -92,12 +101,29 @@ carries it as `location`. A program that serves no scope — a cmdlet, the web
 host, the command line — declares none, and a reader shows its records under
 their host. Nothing reads meaning out of a program's name.
 
-The one reader of the file is here too. `audit_store::read` reads
-`audit.toml` into `audit_entry::AuditEntry` records, keeps them, and reads
-only what was appended since the last time — a table is read once it ends
-with its blank line, so a record still being appended waits for the next
-read — and a file that got shorter is read again from its start.
-`audit_query::AuditQuery` is what every surface asks of them, in the same
+The one reader of the file is here too. `audit_store::ask` answers an
+`audit_query::AuditQuery` from `audit.toml` a page at a time, and keeps no
+record of the history: it keeps an index of the file (`audit_index`) —
+blocks of 64 records by their bytes, each with its earliest and latest
+time and how many records of each kind it holds, a kind being everything a
+query asks by but time and identifier — and indexes only what was appended
+since the last time; a table is read once it ends with its blank line, so a
+record still being appended waits for the next read, and a file that got
+shorter is indexed again from its start. The counts, groups and actions
+come from the index; the page from the few blocks it can be in, read from
+the file and kept parsed while they fit (`audit_cache`), so a view asking
+the same page again parses nothing. Everything a process keeps of its audit
+files is bounded in bytes by `audit_store::BUDGET` (16 MiB, half the
+indexes, half the blocks read lately), not in records: an index that
+outgrows its half merges its older blocks two by two, so the newest stay
+short, and holds nothing — every query then reads the file through — where
+even that cannot fit. A verification, a page sorted by the summary, and a
+file whose times are not written as the file sink writes them read the file
+through a piece at a time (`audit_scan`), holding the page and never the
+history. The page is the one a whole read, sorted and cut would give: the
+same records in the same order, the same counts (`audit_store`'s tests hold
+the two equal over every column, order, page, filter and time window).
+`audit_query::AuditQuery` is what every surface asks, in the same
 words: who (`location`, at and beneath a scope; `host`, the records that
 declared none; `program`; `record`, one of them), the scope `pattern` —
 `observe::wildcard`, the estate's one wildcard, over each location, a record

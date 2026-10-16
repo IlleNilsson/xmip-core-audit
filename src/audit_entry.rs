@@ -11,13 +11,14 @@
 //! fragment, not a record (`crate::audit_fragment`).
 
 use std::collections::BTreeMap;
+use std::io::{self, Read};
 
 use codec::civil::read_rfc3339;
 use codec::toml::unquote_prefix;
 use observe::Scope;
 
 use crate::audit_chain::{Digest, FIRST, Link, digest, read as read_digest};
-use crate::audit_fragment::{BOUNDARY, Fragment, sealed, tables};
+use crate::audit_fragment::{Fragment, sealed, tables, whole};
 use crate::audit_record::DIGEST_KEY;
 
 /// One record as the file holds it.
@@ -152,10 +153,7 @@ pub struct Parsed {
 /// over.
 #[must_use]
 pub fn parse(bytes: &[u8]) -> Parsed {
-    let read = bytes
-        .windows(BOUNDARY.len())
-        .rposition(|pair| pair == BOUNDARY)
-        .map_or(0, |at| at + BOUNDARY.len());
+    let read = whole(bytes).unwrap_or(0);
     let mut parsed = Parsed {
         read,
         ..Parsed::default()
@@ -182,6 +180,32 @@ pub fn parse(bytes: &[u8]) -> Parsed {
         });
     }
     parsed
+}
+
+/// The bytes read from a file at a time.
+pub const PIECE: usize = 64 * 1024;
+
+/// Read `reader` through a [`PIECE`] at a time, handing each run of whole
+/// tables to `whole` as it ends — never more of the file at once than a
+/// piece and the table it cuts — and say what follows the last blank line:
+/// a table still being written, or none.
+///
+/// # Errors
+/// The reader failed, with its reason.
+pub fn pieces(reader: &mut impl Read, mut whole_tables: impl FnMut(&[u8])) -> io::Result<Vec<u8>> {
+    let mut buffer: Vec<u8> = Vec::with_capacity(PIECE);
+    let mut piece = vec![0; PIECE];
+    loop {
+        let got = reader.read(&mut piece)?;
+        if got == 0 {
+            return Ok(buffer);
+        }
+        buffer.extend_from_slice(&piece[..got]);
+        if let Some(cut) = whole(&buffer) {
+            whole_tables(&buffer[..cut]);
+            buffer.drain(..cut);
+        }
+    }
 }
 
 /// The records of `text`, one table or more, appended to `entries`.
