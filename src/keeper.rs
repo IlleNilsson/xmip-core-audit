@@ -29,8 +29,10 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc;
-use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::thread;
+
+use xcore::wake::Wake;
 
 /// One record, or several, to keep.
 type Job = Box<dyn FnOnce() + Send>;
@@ -48,9 +50,9 @@ thread_local! {
 struct Inbox {
     waiting: Mutex<VecDeque<Job>>,
     /// Signalled when a job is handed over.
-    handed: Condvar,
+    handed: Wake,
     /// Signalled when the keeper took one, so there is room.
-    taken: Condvar,
+    taken: Wake,
 }
 
 impl Inbox {
@@ -58,10 +60,7 @@ impl Inbox {
         let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
         if !KEEPING.get() {
             while waiting.len() >= INBOX {
-                waiting = self
-                    .taken
-                    .wait(waiting)
-                    .unwrap_or_else(PoisonError::into_inner);
+                waiting = self.taken.wait(&self.waiting, waiting);
             }
         }
         waiting.push_back(job);
@@ -77,10 +76,7 @@ impl Inbox {
                 match waiting.pop_front() {
                     Some(job) => break job,
                     None => {
-                        waiting = self
-                            .handed
-                            .wait(waiting)
-                            .unwrap_or_else(PoisonError::into_inner);
+                        waiting = self.handed.wait(&self.waiting, waiting);
                     }
                 }
             };
@@ -108,8 +104,8 @@ fn inbox() -> Option<&'static Inbox> {
     *INBOX_KEPT.get_or_init(|| {
         let inbox: &'static Inbox = Box::leak(Box::new(Inbox {
             waiting: Mutex::new(VecDeque::new()),
-            handed: Condvar::new(),
-            taken: Condvar::new(),
+            handed: Wake::new(),
+            taken: Wake::new(),
         }));
         thread::Builder::new()
             .name("xmip-audit-keeper".to_string())
