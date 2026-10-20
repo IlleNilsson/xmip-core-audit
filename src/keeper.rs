@@ -49,9 +49,9 @@ thread_local! {
 /// The hand-overs waiting, and the two waits on them.
 struct Inbox {
     waiting: Mutex<VecDeque<Job>>,
-    /// Signalled when a job is handed over.
+    /// Signaled when a job is handed over.
     handed: Wake,
-    /// Signalled when the keeper took one, so there is room.
+    /// Signaled when the keeper took one, so there is room.
     taken: Wake,
 }
 
