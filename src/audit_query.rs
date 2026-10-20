@@ -614,7 +614,7 @@ mod tests {
     #[test]
     fn a_word_it_does_not_take_is_refused_in_one_sentence() {
         for pairs in [
-            [("colour", "red")],
+            [("color", "red")],
             [("severity", "fatal")],
             [("sort", "when")],
             [("from", "yesterday")],
