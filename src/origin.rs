@@ -18,7 +18,7 @@ use observe::Scope;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Origin {
     /// The program's name as ADR-0053 and its README call it:
-    /// `Xmip.Gui.Web`, `xmip-cli`, `xmip-lsp`.
+    /// `Xmip.Gui.Web`, `xmip`, `xmip-lsp`.
     pub program: String,
     /// The machine's name, `-` when it cannot be read.
     pub host: String,
