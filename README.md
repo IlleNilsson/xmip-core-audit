@@ -88,7 +88,7 @@ records it matched over every record in the file, a hidden run's among
 them, read from the file's bytes as they are now, a piece at a time
 (`audit_store::each`), holding where each chain stands and never the file;
 the page's `chains` carry each verdict and its `fragments` the bytes no
-write finished. `xmip-cli audit --verify`,
+write finished. `xmip audit --verify`,
 `Get-XmipAudit -Verify` and the Audit view's *verify chains* are that query.
 
 ## Whose a record is, and reading it back (ADR-0062, amendment 2026-09-29)
@@ -134,7 +134,7 @@ the page, the groups one step down the drill — clusters and hosts, a
 cluster's nodes and its own programs, a node's programs — and the actions
 there are to choose from. The runtime forwards it as `xmip_audit_read_v1`
 (`xmip_operate.h` section 9), `Xmip.Surface`'s `ProgramAudit.Read` calls
-that, and the Audit view, `xmip-cli audit` and `Get-XmipAudit` are that call.
+that, and the Audit view, `xmip audit` and `Get-XmipAudit` are that call.
 
 ## When audit cannot persist: the operating system's log
 
