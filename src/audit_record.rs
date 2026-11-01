@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use codec::civil::rfc3339_nanos;
-use codec::toml::quote;
+use codec::toml::{quote, quote_into};
 use xcore::{AuditId, ExecutionPhase, Severity};
 
 use crate::audit_chain::{Digest, digest, written};
@@ -72,53 +72,57 @@ impl AuditRecord {
     /// The table, with the chain's fields where they are given, and where
     /// a digest line goes in it: after them.
     fn table(&self, chain: Option<(&str, u64, &Digest)>) -> (String, usize) {
-        let mut out = String::from("[[record]]\n");
-        // Writing to a String cannot fail.
-        let _ = writeln!(out, "audit_id = {}", quote(&self.audit_id.to_string()));
+        // Each value quoted where it is written, never made a string first.
+        let mut out = String::with_capacity(512);
+        out.push_str("[[record]]\n");
+        let field = |out: &mut String, key: &str, value: &dyn std::fmt::Display| {
+            out.push_str(key);
+            out.push_str(" = ");
+            quote_into(out, value);
+            out.push('\n');
+        };
+        field(&mut out, "audit_id", &self.audit_id);
         if let Some((writer, position, previous)) = chain {
-            let _ = writeln!(out, "writer = {}", quote(writer));
-            let _ = writeln!(out, "position = {}", quote(&position.to_string()));
-            let _ = writeln!(out, "previous = {}", quote(&written(previous)));
+            field(&mut out, "writer", &writer);
+            field(&mut out, "position", &position);
+            field(&mut out, "previous", &written(previous));
         }
         let at = out.len();
-        let mut field = |key: &str, value: &str| {
-            let _ = writeln!(out, "{key} = {}", quote(value));
-        };
 
-        field("at", &rfc3339_nanos(self.timestamp_unix_nanos));
-        field("program", &self.origin.program);
-        field("host", &self.origin.host);
-        field("process", &self.origin.process.to_string());
+        field(&mut out, "at", &rfc3339_nanos(self.timestamp_unix_nanos));
+        field(&mut out, "program", &self.origin.program);
+        field(&mut out, "host", &self.origin.host);
+        field(&mut out, "process", &self.origin.process);
         if let Some(location) = &self.origin.location {
-            field("location", location);
+            field(&mut out, "location", location);
         }
         if self.origin.hidden {
-            field("hidden", "true");
+            field(&mut out, "hidden", &"true");
         }
-        field("action", &self.action);
-        field("phase", self.phase.word());
-        field("severity", self.severity.word());
+        field(&mut out, "action", &self.action);
+        field(&mut out, "phase", &self.phase.word());
+        field(&mut out, "severity", &self.severity.word());
 
         if let Some(message) = &self.message {
-            field("message", message);
+            field(&mut out, "message", message);
         }
 
         if let Some(scope) = &self.scope {
             out.push_str("[record.scope]\n");
-            let mut scoped = |key: &str, value: &str| {
-                let _ = writeln!(out, "{key} = {}", quote(value));
-            };
-            scoped("execution_id", &scope.execution_id.to_string());
-            scoped("journey_id", &scope.journey_id.to_string());
-            scoped("message_id", &scope.message_id.to_string());
-            scoped("artifact_type", scope.artifact.artifact_type);
-            scoped("artifact", &scope.artifact.name);
+            field(&mut out, "execution_id", &scope.execution_id);
+            field(&mut out, "journey_id", &scope.journey_id);
+            field(&mut out, "message_id", &scope.message_id);
+            field(&mut out, "artifact_type", &scope.artifact.artifact_type);
+            field(&mut out, "artifact", &scope.artifact.name);
         }
 
         if !self.properties.is_empty() {
             out.push_str("[record.properties]\n");
             for (key, value) in &self.properties {
-                let _ = writeln!(out, "{} = {}", quote(key), quote(value));
+                quote_into(&mut out, key);
+                out.push_str(" = ");
+                quote_into(&mut out, value);
+                out.push('\n');
             }
         }
 
