@@ -200,7 +200,7 @@ mod tests {
     use crate::program_audit::ProgramAudit;
     use std::collections::BTreeMap;
     use std::fs;
-    use std::time::{Duration, Instant};
+
     use xcore::{AuditId, ExecutionPhase, Severity};
 
     fn scratch(name: &str) -> PathBuf {
@@ -233,55 +233,9 @@ mod tests {
             .map(|entry| entry.action.as_str())
             .collect()
     }
-
-    /// A history of `count` records, written as the file sink writes them,
-    /// of a few programs on the test cluster's scopes, each of a kind and
-    /// a time the one before it does not decide: times rise, with records
-    /// written a little out of order and many sharing one moment.
-    fn history(file: &Path, count: u64) {
-        let cluster = configure::fixture::test_cluster();
-        let locations = [
-            Some(cluster.scope()),
-            Some(cluster.node_scope(0)),
-            Some(cluster.node_scope(1)),
-            None,
-        ];
-        let mut text = String::new();
-        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
-        let mut next = |bound: usize| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            usize::try_from(seed % bound as u64).expect("small")
-        };
-        let base: i128 = 1_790_000_000_000_000_000;
-        for number in 0..count {
-            let jitter = i128::try_from(next(3)).expect("small") * 400_000;
-            let at = base + i128::from(number / 3) * 1_000_000 - jitter;
-            let milliseconds = u128::try_from(at / 1_000_000).expect("after the epoch");
-            let id = (milliseconds << 80) | (0x7 << 76) | u128::from(number);
-            let place = next(4);
-            let record = AuditRecord {
-                audit_id: AuditId::new(id),
-                origin: Origin {
-                    program: ["roll", "node", "web"][place % 3].to_string(),
-                    host: "edge-01".to_string(),
-                    process: 7,
-                    location: locations[place].clone(),
-                    hidden: place == 2 && next(9) == 0,
-                },
-                scope: None,
-                action: ["start", "stop", "publish", "receive"][next(4)].to_string(),
-                phase: ExecutionPhase::ALL[next(2)],
-                severity: Severity::ALL[next(3)],
-                timestamp_unix_nanos: at,
-                message: Some(format!("record {}", next(1_000))),
-                properties: BTreeMap::new(),
-            };
-            text.push_str(&record.toml());
-        }
-        fs::write(file, text).expect("written");
-    }
+    #[path = "../../../tests/measured/history.rs"]
+    mod history;
+    use history::history;
 
     /// The questions the equality is held to: every column either way,
     /// pages at the start, deep and past the end, each filter, a time
@@ -445,45 +399,6 @@ mod tests {
             !kinds.tallied && kinds.held() == 0,
             "the kinds alone outgrew it"
         );
-        let _ = fs::remove_dir_all(&directory);
-    }
-
-    /// The median of `runs` asks of `asked`.
-    fn timed(file: &Path, asked: &AuditQuery, runs: usize) -> Duration {
-        let mut took: Vec<Duration> = (0..runs)
-            .map(|_| {
-                let started = Instant::now();
-                let _ = ask(file, asked).expect("asked");
-                started.elapsed()
-            })
-            .collect();
-        took.sort();
-        took[runs / 2]
-    }
-
-    #[test]
-    fn a_page_takes_as_long_whatever_the_history_behind_it() {
-        let directory = scratch("time");
-        let (short, long) = (directory.join("short.toml"), directory.join("long.toml"));
-        history(&short, 2_048);
-        history(&long, 40_960);
-        let pages = [
-            query(&[("limit", "200")]),
-            query(&[("offset", "1000"), ("limit", "200")]),
-            query(&[("severity", "Error"), ("sort", "program"), ("limit", "200")]),
-        ];
-        for asked in &pages {
-            ask(&short, asked).expect("indexed once");
-            ask(&long, asked).expect("indexed once");
-            let (shorter, longer) = (timed(&short, asked, 9), timed(&long, asked, 9));
-            println!("{asked:?}: {shorter:?} over 2,048 records, {longer:?} over 40,960");
-            assert!(
-                longer <= shorter * 3 + Duration::from_millis(2),
-                "{longer:?} over 40,960 records against {shorter:?} over 2,048"
-            );
-        }
-        println!("the indexes of 43,008 records hold {} bytes", held());
-        assert!(held() <= BUDGET);
         let _ = fs::remove_dir_all(&directory);
     }
 }

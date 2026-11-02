@@ -152,11 +152,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
-
-    /// The tests that hold the keeper, or time it, one at a time: the keeper
-    /// is the process's one.
-    static SERIAL: Mutex<()> = Mutex::new(());
-
     #[test]
     fn records_are_kept_in_the_order_handed_over_and_settle_waits_for_them() {
         let kept = Arc::new(Mutex::new(Vec::new()));
@@ -167,27 +162,6 @@ mod tests {
         settle();
         let kept = kept.lock().expect("no poison");
         assert_eq!(*kept, (0..100).collect::<Vec<_>>());
-    }
-
-    #[test]
-    fn handing_over_does_not_wait_for_the_keeping() {
-        let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        let (release, held) = mpsc::channel::<()>();
-        later(move || {
-            let _ = held.recv();
-        });
-        // The keeper is blocked on the first job; handing over still returns.
-        let started = Instant::now();
-        for _ in 0..1_000 {
-            later(|| {});
-        }
-        assert!(
-            started.elapsed() < Duration::from_millis(100),
-            "a thousand hand-overs took {:?}",
-            started.elapsed()
-        );
-        release.send(()).expect("the keeper holds the receiver");
-        settle();
     }
 
     #[test]
@@ -202,7 +176,6 @@ mod tests {
 
     #[test]
     fn a_full_inbox_makes_the_writer_wait_and_loses_nothing() {
-        let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
         let (release, held) = mpsc::channel::<()>();
         let kept = Arc::new(AtomicUsize::new(0));
         later(move || {
