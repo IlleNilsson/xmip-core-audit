@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn a_file_that_is_not_there_holds_nothing() {
         let directory = scratch("absent");
-        let page = ask(&directory.join("audit.toml"), &query(&[])).expect("not an error");
+        let page = ask(&directory.join("audit.xmip"), &query(&[])).expect("not an error");
 
         assert_eq!(page, AuditPage::default());
     }
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn every_page_is_the_one_the_whole_history_gives() {
         let directory = scratch("same");
-        let file = directory.join("audit.toml");
+        let file = directory.join("audit.xmip");
         history(&file, 3_000);
         let whole = parse(&fs::read(&file).expect("read")).entries;
         let mut small = Index::new(192 * 1024);
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn what_is_held_stays_within_the_budget_over_a_long_history() {
         let directory = scratch("budget");
-        let file = directory.join("audit.toml");
+        let file = directory.join("audit.xmip");
         let budget = 256 * 1024;
         let mut index = Index::new(budget);
         let mut most = 0;
