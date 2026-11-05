@@ -6,7 +6,7 @@
 //! does it. Until it has, an entry is written under the Application log's
 //! existing `.NET Runtime` source, whose event 1000 shows the text as given,
 //! and its first sentence says why. The `windows-event-log` technology under
-//! this capability in `architecture.toml`.
+//! this capability in `architecture.xmip`.
 //!
 //! The one file in this crate that may hold unsafe code (ADR-0050, amendment
 //! 2026-09-25): the Event Log and the registry are C interfaces and are

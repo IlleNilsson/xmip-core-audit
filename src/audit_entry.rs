@@ -318,7 +318,7 @@ mod tests {
     fn program() -> String {
         let cluster = test_cluster();
         format!(
-            "xmip-playground-{}-node-{}",
+            "xmip-essentials-{}-node-{}",
             cluster.name,
             cluster.node(0).name
         )

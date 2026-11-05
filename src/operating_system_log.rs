@@ -5,7 +5,7 @@
 //! It is the fallback, not a second sink: [`crate::emit::Audit`] is the
 //! only caller, and only after the configured sink refused a record or
 //! there was none. Each platform's writer is a technology under this
-//! capability in `architecture.toml`; they live here because the fallback
+//! capability in `architecture.xmip`; they live here because the fallback
 //! is the capability's own rule and a capability does not depend on its
 //! technologies (ADR-0044).
 //!

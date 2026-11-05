@@ -27,7 +27,7 @@ use crate::{AuditError, AuditSink};
 pub const DIRECTORY_VARIABLE: &str = "XMIP_AUDIT_DIRECTORY";
 
 /// The file in that directory every program appends to: one place to read.
-pub const FILE_NAME: &str = "audit.toml";
+pub const FILE_NAME: &str = "audit.xmip";
 
 /// Records appended to [`FILE_NAME`] in one directory.
 #[derive(Clone, Debug, Eq, PartialEq)]

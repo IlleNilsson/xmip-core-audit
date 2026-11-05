@@ -39,7 +39,7 @@ path = "tests/measured/main.rs"
 test = false
 
 [dev-dependencies]
-# The test cluster's names, from its `xmip.toml` (`configure::fixture`).
+# The test cluster's names, from its `cluster.xmip` (`configure::fixture`).
 configure = { package = "xmip-core-configure", git = "https://github.com/IlleNilsson/xmip-core-configure", branch = "main", features = ["test-support"] }
 
 # The Event Log and the registry are C interfaces, reached from one file,

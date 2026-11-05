@@ -71,7 +71,7 @@ fn timed(file: &Path, asked: &AuditQuery, runs: usize) -> Duration {
 #[test]
 fn a_page_takes_as_long_whatever_the_history_behind_it() {
     let directory = scratch("time");
-    let (short, long) = (directory.join("short.toml"), directory.join("long.toml"));
+    let (short, long) = (directory.join("short.xmip"), directory.join("long.xmip"));
     history(&short, 2_048);
     history(&long, 40_960);
     let pages = [

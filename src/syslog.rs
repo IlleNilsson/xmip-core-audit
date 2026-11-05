@@ -4,7 +4,7 @@
 //! On a systemd machine `/dev/log` is the journal's own socket, so the
 //! record is in the journal (`journalctl -t xmip`); elsewhere a syslog daemon
 //! reads it; on macOS `/var/run/syslog` feeds the unified log. The `syslog`
-//! technology under this capability in `architecture.toml`.
+//! technology under this capability in `architecture.xmip`.
 
 use std::os::unix::net::UnixDatagram;
 
