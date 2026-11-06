@@ -17,7 +17,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
+use xcore::lock::Locked;
 
 use crate::audit_chain::{Digest, FIRST};
 use crate::audit_entry::{AuditEntry, parse};
@@ -65,7 +66,7 @@ pub(crate) fn head(path: &Path, writer: &str) -> io::Result<Head> {
         Some(file) => file.metadata()?.len(),
         None => 0,
     };
-    let mut all = tails().lock().unwrap_or_else(PoisonError::into_inner);
+    let mut all = tails().locked();
     let tail = all.entry(path.to_path_buf()).or_default();
     if length < tail.length {
         *tail = Tail::default();
@@ -97,7 +98,7 @@ pub(crate) fn head(path: &Path, writer: &str) -> io::Result<Head> {
 /// `writer` appended its record `head` to `path`, which is now `length`
 /// long.
 pub(crate) fn appended(path: &Path, writer: &str, head: Head, length: u64) {
-    let mut all = tails().lock().unwrap_or_else(PoisonError::into_inner);
+    let mut all = tails().locked();
     let tail = all.entry(path.to_path_buf()).or_default();
     tail.length = length;
     tail.looked = true;
@@ -152,10 +153,7 @@ fn from_the_end(file: &mut File, length: u64, writer: &str) -> io::Result<Head> 
 /// would not know it.
 #[cfg(test)]
 pub(crate) fn forget(path: &Path) {
-    tails()
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(path);
+    tails().locked().remove(path);
 }
 
 #[cfg(test)]
