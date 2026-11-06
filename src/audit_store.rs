@@ -21,6 +21,7 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use xcore::lock::Locked;
 
 use crate::AuditError;
 use crate::audit_entry::{AuditEntry, parse, pieces};
@@ -88,9 +89,7 @@ pub fn ask(file: &Path, query: &AuditQuery) -> Result<AuditPage, AuditError> {
 /// Never: a poisoned lock is read through.
 #[must_use]
 pub fn held() -> usize {
-    let all = indexes()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let all = indexes().locked();
     all.kept.iter().map(|kept| kept.index.held()).sum()
 }
 

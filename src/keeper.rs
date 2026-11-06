@@ -29,8 +29,9 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
+use xcore::lock::Locked;
 
 use xcore::wake::Wake;
 
@@ -57,7 +58,7 @@ struct Inbox {
 
 impl Inbox {
     fn hand(&self, job: Job) {
-        let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut waiting = self.waiting.locked();
         if !KEEPING.get() {
             while waiting.len() >= INBOX {
                 waiting = self.taken.wait(&self.waiting, waiting);
@@ -71,7 +72,7 @@ impl Inbox {
     fn keep(&self) -> ! {
         KEEPING.set(true);
         loop {
-            let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut waiting = self.waiting.locked();
             let job = loop {
                 match waiting.pop_front() {
                     Some(job) => break job,
@@ -90,10 +91,7 @@ impl Inbox {
 
     /// How many hand-overs wait.
     fn waiting(&self) -> usize {
-        self.waiting
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len()
+        self.waiting.locked().len()
     }
 }
 
