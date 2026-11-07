@@ -20,7 +20,7 @@
 use std::fs::File;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use xcore::lock::Locked;
 
 use crate::AuditError;
@@ -52,8 +52,8 @@ struct Indexes {
 }
 
 fn indexes() -> &'static Mutex<Indexes> {
-    static INDEXES: OnceLock<Mutex<Indexes>> = OnceLock::new();
-    INDEXES.get_or_init(|| Mutex::new(Indexes::default()))
+    static INDEXES: LazyLock<Mutex<Indexes>> = LazyLock::new(|| Mutex::new(Indexes::default()));
+    &INDEXES
 }
 
 /// The file a reader reads: the one a program writing into `directory`

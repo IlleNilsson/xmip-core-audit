@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use xcore::lock::Locked;
 
 use crate::audit_chain::{Digest, FIRST};
@@ -49,8 +49,9 @@ struct Tail {
 }
 
 fn tails() -> &'static Mutex<HashMap<PathBuf, Tail>> {
-    static TAILS: OnceLock<Mutex<HashMap<PathBuf, Tail>>> = OnceLock::new();
-    TAILS.get_or_init(|| Mutex::new(HashMap::new()))
+    static TAILS: LazyLock<Mutex<HashMap<PathBuf, Tail>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    &TAILS
 }
 
 /// The head of `writer`'s chain in the file at `path`, read while the
