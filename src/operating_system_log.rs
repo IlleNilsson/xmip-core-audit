@@ -36,19 +36,22 @@ impl OperatingSystemLog {
     }
 }
 
-#[cfg(windows)]
-fn write(record: &AuditRecord, text: &str) -> Result<String, AuditError> {
-    crate::windows_event_log::write(record.severity, text)
-}
-
-#[cfg(unix)]
-fn write(record: &AuditRecord, text: &str) -> Result<String, AuditError> {
-    crate::syslog::write(record.severity, text)
-}
-
-#[cfg(not(any(windows, unix)))]
-fn write(_: &AuditRecord, _: &str) -> Result<String, AuditError> {
-    Err(AuditError::new(
-        "this platform has no operating system log Xmip writes to",
-    ))
+cfg_select! {
+    windows => {
+        fn write(record: &AuditRecord, text: &str) -> Result<String, AuditError> {
+            crate::windows_event_log::write(record.severity, text)
+        }
+    }
+    unix => {
+        fn write(record: &AuditRecord, text: &str) -> Result<String, AuditError> {
+            crate::syslog::write(record.severity, text)
+        }
+    }
+    _ => {
+        fn write(_: &AuditRecord, _: &str) -> Result<String, AuditError> {
+            Err(AuditError::new(
+                "this platform has no operating system log Xmip writes to",
+            ))
+        }
+    }
 }
