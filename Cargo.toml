@@ -14,7 +14,8 @@ description = "Configurable audit lifecycle records for every Xmip action and ev
 # identifier is, by xmip-core's one generator.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7"] }
 # The estate's encoding primitives: a record is written as TOML (quoted by
-# codec's one quoting) and stamped by the civil calendar.
+# codec's one quoting) and stamped by the civil calendar; an entry in the
+# Windows Event Log crosses to Windows as codec's wide string.
 codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
 
 # The one scope rule and the one wildcard: a reader asks who a record is by
