@@ -64,7 +64,9 @@ pub(crate) fn write(severity: Severity, text: &str) -> Result<String, AuditError
 
 /// Whether `source` is registered under the Application log.
 fn registered(source: &str) -> bool {
-    let path = wide(&format!(r"{SOURCES}\{source}"));
+    let Ok(path) = codec::wide::encode(&format!(r"{SOURCES}\{source}")) else {
+        return false;
+    };
     let mut key: HKEY = ptr::null_mut();
 
     // SAFETY: `path` is a NUL-terminated UTF-16 string owned by this frame
@@ -85,8 +87,8 @@ fn registered(source: &str) -> bool {
 
 /// One entry under `source`.
 fn report(source: &str, kind: u16, text: &str) -> Result<(), AuditError> {
-    let name = wide(source);
-    let message = wide(text);
+    let name = wide(source)?;
+    let message = wide(text)?;
 
     // SAFETY: `name` is a NUL-terminated UTF-16 string owned by this frame and
     // outlives the call; a null server name is this machine. The handle
@@ -136,9 +138,11 @@ fn report(source: &str, kind: u16, text: &str) -> Result<(), AuditError> {
     Ok(())
 }
 
-/// `text` as NUL-terminated UTF-16, the only text the Windows API reads.
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(std::iter::once(0)).collect()
+/// `text` as a wide string, the only text the Windows API reads, refused
+/// where it holds a NUL the Event Log would cut it short at.
+fn wide(text: &str) -> Result<codec::wide::Wide, AuditError> {
+    codec::wide::encode(text)
+        .map_err(|why| AuditError::new(format!("the Windows Event Log takes no NUL: {why}")))
 }
 
 #[cfg(test)]
@@ -155,7 +159,8 @@ mod tests {
 
     #[test]
     fn text_crosses_as_nul_terminated_utf_16() {
-        assert_eq!(wide("Xö"), vec![0x58, 0xf6, 0]);
+        assert_eq!(wide("Xö").expect("wide").units(), [0x58, 0xf6, 0]);
+        assert!(wide("X\0ö").is_err(), "a NUL inside is refused");
     }
 
     #[test]
