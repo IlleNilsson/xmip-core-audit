@@ -96,7 +96,7 @@ persistence failure that risks losing required evidence.
 All of this is [decided, not built](../../../../../doc/architecture/estate-map.md#bounded-audit-channel). What runs
 is `keeper`, an unbounded queue on one thread that Event delivery records
 are handed to, and `ProgramAudit::record`, which waits for that queue to
-drain and then appends the record to `audit.xmip` before it returns
+drain and then appends the record to `audit.toml` before it returns
 ([built, in the assembled service](../../../../../doc/architecture/estate-map.md#program-audit)).
 
 

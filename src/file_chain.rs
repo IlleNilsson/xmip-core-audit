@@ -23,7 +23,7 @@ use xcore::lock::Locked;
 use crate::audit_chain::{Digest, FIRST};
 use crate::audit_entry::{AuditEntry, parse};
 
-/// The file beside `audit.xmip` an appender holds while it appends: the
+/// The file beside `audit.toml` an appender holds while it appends: the
 /// operating system's own lock, which ends with the process.
 pub const LOCK_NAME: &str = "audit.lock";
 
