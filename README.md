@@ -49,7 +49,7 @@ system's log is for when audit cannot persist, not for when it is behind
 (ADR-0062 clause 3). The keeper's own thread never waits for itself, and a
 job that panics does not end it.
 
-A program's records go to `file_sink::FileSink` — `audit.xmip`, one
+A program's records go to `file_sink::FileSink` — `audit.toml`, one
 `[[record]]` table per record, in the directory the program was told (its
 configuration's `AuditDirectory`), else the one `XMIP_AUDIT_DIRECTORY`
 names, else nowhere. The estate's tooling sets the variable to
@@ -70,7 +70,7 @@ breaks — a record whose content does not match its digest (changed), one
 whose number skips (deleted before it), one out of its order, or one whose
 `previous` is not the digest of the record before it — or that it is whole.
 
-**In `audit.xmip`** the file sink forms the chain as it appends: holding
+**In `audit.toml`** the file sink forms the chain as it appends: holding
 `audit.lock`, a file beside it, it reads where the writer's chain stands —
 what was appended since this process last looked, or, for a writer it has
 not met, the file read back from its end to that writer's last record, so a
@@ -102,7 +102,7 @@ host, the command line — declares none, and a reader shows its records under
 their host. Nothing reads meaning out of a program's name.
 
 The one reader of the file is here too. `audit_store::ask` answers an
-`audit_query::AuditQuery` from `audit.xmip` a page at a time, and keeps no
+`audit_query::AuditQuery` from `audit.toml` a page at a time, and keeps no
 record of the history: it keeps an index of the file (`audit_index`) —
 blocks of 64 records by their bytes, each with its earliest and latest
 time and how many records of each kind it holds, a kind being everything a
@@ -157,7 +157,7 @@ here once:
 - **macOS**: the same datagram to `/var/run/syslog`, which the unified log
   reads.
 
-Each is a technology under this capability in `architecture.xmip`
+Each is a technology under this capability in `architecture.toml`
 (`file`, `syslog`, `windows-event-log`), held here rather than in a
 repository of its own because the fallback is the capability's rule and a
 capability does not depend on its technologies.
