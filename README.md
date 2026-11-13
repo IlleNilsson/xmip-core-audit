@@ -94,8 +94,8 @@ write finished. `xmip audit --verify`,
 ## Whose a record is, and reading it back (ADR-0062, amendment 2026-09-29)
 
 A process that belongs somewhere in Xmip says where: `ProgramAudit::locate`
-takes the location it declares (ADR-0053 clause 3) — `xmip:///C1` for a
-Essentials roll or its cluster, `xmip:///C1/node/R1` for a node or the Xmip
+takes the location it declares (ADR-0053 clause 3) — `xmip:///CL1` for a
+Essentials roll or its cluster, `xmip:///CL1/node/RX1` for a node or the Xmip
 Service — and every record from then on, by any clone and the panic hook's,
 carries it as `location`. A program that serves no scope — a cmdlet, the web
 host, the command line — declares none, and a reader shows its records under
