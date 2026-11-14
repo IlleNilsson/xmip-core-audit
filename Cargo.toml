@@ -11,7 +11,10 @@ description = "Configurable audit lifecycle records for every Xmip action and ev
 
 [dependencies]
 # uuid-v7: an audit record's identifier is minted here, as every Xmip
-# identifier is, by xmip-core's one generator.
+# identifier is, by xmip-core's one generator; and each record chained to
+# the one before it in its writer's audit chain by xmip-core's one rule,
+# over the SHA-256 of its canonical form (xcore::audit_chain, ADR-0070
+# clause 5).
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7"] }
 # The estate's encoding primitives: a record is written as TOML (quoted by
 # codec's one quoting) and stamped by the civil calendar; an entry in the
@@ -21,15 +24,15 @@ codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNil
 # The one scope rule and the one wildcard: a reader asks who a record is by
 # the location its process declared, and filters by the pattern every
 # surface filters with (ADR-0062, amendment 2026-09-29).
+node = { package = "xmip-core-node", git = "https://github.com/IlleNilsson/xmip-core-node", branch = "main" }
+
+# Whether what a hidden run made is shown is observe's one rule
+# (`observe::run::shown`; ADR-0028, amendment 2026-09-30).
 observe = { package = "xmip-core-observe", git = "https://github.com/IlleNilsson/xmip-core-observe", branch = "main" }
 
 # The event source's name, XMIP_EVENT_SOURCE, from the header that declares it.
 abi = { package = "xmip-core-abi", git = "https://github.com/IlleNilsson/xmip-core-abi", branch = "main" }
 
-# SHA-256 over each record's canonical form, which chains it to the one
-# before it in its writer's audit chain (ADR-0070 clause 5); the crate
-# Xmip Storage and the archive checksum use.
-sha2 = "0.11"
 
 # The module's timing program (doc/governance/rust-style.md section 5c): a
 # plain cargo test leaves it out, and the landing runs it after every other
@@ -42,6 +45,10 @@ test = false
 [dev-dependencies]
 # The test cluster's names, from its `cluster.xmip` (`configure::fixture`).
 configure = { package = "xmip-core-configure", git = "https://github.com/IlleNilsson/xmip-core-configure", branch = "main", features = ["test-support"] }
+
+# The timing program's fastest of five, said as every timing program says
+# it (`xcore::latency::spread`).
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7", "test-support"] }
 
 # The Event Log and the registry are C interfaces, reached from one file,
 # src/windows_event_log.rs (ADR-0050, amendment 2026-09-25).

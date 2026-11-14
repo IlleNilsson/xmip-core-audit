@@ -12,7 +12,7 @@
 
 use std::fs;
 
-use observe::Scope;
+use node::Scope;
 
 /// The program, host and process an audit record came from.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,7 +53,7 @@ impl Origin {
     /// Whose audit chain a record from here is in (ADR-0070 clause 5,
     /// amended 2026-10-10: *one chain per writer*): the node's, by the
     /// location it declared, where that location is a node's
-    /// (`observe::Scope::node`); else the program's, by its name.
+    /// (`node::Scope::node`); else the program's, by its name.
     #[must_use]
     pub fn writer(&self) -> String {
         self.location

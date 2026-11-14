@@ -189,18 +189,30 @@ pub fn each(file: &Path, mut offer: impl FnMut(&AuditEntry)) -> Result<Vec<Fragm
     Ok(fragments)
 }
 
+// Declared here, beside the file, and not in `tests`: a path from an
+// inline module passes through a directory named for it that does not
+// exist, which Windows forgives and Linux does not. It names the record's
+// words from here (`super`).
+#[cfg(test)]
+#[path = "../tests/measured/history.rs"]
+mod history;
+#[cfg(test)]
+use {
+    crate::audit_record::AuditRecord,
+    crate::origin::Origin,
+    xcore::{AuditId, ExecutionPhase, Severity},
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::audit_block::BLOCK;
     use crate::audit_column::Column;
-    use crate::audit_record::AuditRecord;
-    use crate::origin::Origin;
     use crate::program_audit::ProgramAudit;
     use std::collections::BTreeMap;
     use std::fs;
 
-    use xcore::{AuditId, ExecutionPhase, Severity};
+    use xcore::{ExecutionPhase, Severity};
 
     fn scratch(name: &str) -> PathBuf {
         let directory =
@@ -232,9 +244,7 @@ mod tests {
             .map(|entry| entry.action.as_str())
             .collect()
     }
-    #[path = "../../../tests/measured/history.rs"]
-    mod history;
-    use history::history;
+    use super::history::history;
 
     /// The questions the equality is held to: every column either way,
     /// pages at the start, deep and past the end, each filter, a time

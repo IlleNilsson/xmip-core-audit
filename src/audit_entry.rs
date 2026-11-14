@@ -15,9 +15,10 @@ use std::io::{self, Read};
 
 use codec::civil::read_rfc3339;
 use codec::toml::unquote_prefix;
-use observe::Scope;
+use node::Scope;
+use xcore::audit_chain::{Digest, FIRST, digest, read as read_digest};
 
-use crate::audit_chain::{Digest, FIRST, Link, digest, read as read_digest};
+use crate::audit_chain::Link;
 use crate::audit_fragment::{Fragment, sealed, tables, whole};
 use crate::audit_record::DIGEST_KEY;
 

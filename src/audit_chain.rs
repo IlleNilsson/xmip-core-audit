@@ -6,48 +6,23 @@
 //! before it. A deleted, changed or reordered record breaks the chain where
 //! it was, and [`walk`] says where, in words.
 //!
-//! The rule is here once. The file sink forms the chain as it appends
-//! (`crate::file_sink`), Xmip Storage as it writes a node's records
-//! (`xmip-core-persist`, its one writer to the runtime database); each
-//! computes its records' digests over its own canonical form with
-//! [`digest`] and hands the records of one writer, in the order the log
-//! holds them, to [`walk`], which is what every verification calls.
+//! How a chain is formed — where a writer's chain starts, the number and
+//! the digest before it each next record takes, and the digest — is the
+//! estate's one rule, `xcore::audit_chain`, beneath every log. The file
+//! sink forms the chain by it as it appends (`crate::file_sink`), Xmip
+//! Storage as it writes a node's records (`xmip-core-persist`, its one
+//! writer to the runtime database); each digests its records over its own
+//! canonical form and hands the records of one writer, in the order the
+//! log holds them, to [`walk`], which is what every verification calls.
+//! Until 2026-11-13 this file and Xmip Storage each held the rule and took
+//! the digest from `sha2`.
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use codec::hex;
-use sha2::{Digest as _, Sha256};
+use xcore::audit_chain::{Digest, FIRST};
 
 use crate::audit_entry::AuditEntry;
-
-/// How long a digest is, in bytes.
-pub const DIGEST: usize = 32;
-
-/// A SHA-256 digest.
-pub type Digest = [u8; DIGEST];
-
-/// What the first record of a chain carries as the digest before it: none
-/// was.
-pub const FIRST: Digest = [0; DIGEST];
-
-/// The SHA-256 digest of `bytes`.
-#[must_use]
-pub fn digest(bytes: &[u8]) -> Digest {
-    Sha256::digest(bytes).into()
-}
-
-/// A digest as a record writes it: 64 lower-case hex digits.
-#[must_use]
-pub fn written(digest: &Digest) -> String {
-    hex::encode(digest)
-}
-
-/// The digest 64 hex digits spell, or `None`.
-#[must_use]
-pub fn read(text: &str) -> Option<Digest> {
-    hex::decode(text).ok()?.try_into().ok()
-}
 
 /// One record as its writer's chain holds it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -304,6 +279,7 @@ pub fn chains<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xcore::audit_chain::digest;
 
     /// A whole chain of `count` records, each digest over its number and
     /// the one before it.
@@ -392,12 +368,5 @@ mod tests {
         };
         assert_eq!(verdict.broken, Some(moved));
         assert!(verdict.said().contains("found after number 3"));
-    }
-
-    #[test]
-    fn a_digest_is_written_as_hex_and_read_back() {
-        let own = digest(b"record");
-        assert_eq!(read(&written(&own)), Some(own));
-        assert_eq!(read("00"), None, "too short");
     }
 }

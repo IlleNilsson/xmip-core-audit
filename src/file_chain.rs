@@ -12,15 +12,23 @@
 //! shorter was replaced, and is looked at again. A record whose write was
 //! interrupted is no record: sealed apart, it is in no chain, and the next
 //! record of its writer goes on from the last whole one.
+//!
+//! The file is opened to read only where there is something to read: what
+//! another process appended since, or a writer not met yet. Opening a file
+//! to read that was written since its last open is what an operating
+//! system's file scanner waits on — 37 ms a record on Windows on
+//! 2026-11-13, where the whole durable write was 1.6 ms (ADR-0062,
+//! amendment 2026-11-13) — so a file this process left whole at the length
+//! it has now is never read again.
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+use xcore::audit_chain::{FIRST, Head};
 use xcore::lock::Locked;
 
-use crate::audit_chain::{Digest, FIRST};
 use crate::audit_entry::{AuditEntry, parse};
 
 /// The file beside `audit.toml` an appender holds while it appends: the
@@ -34,10 +42,6 @@ const WINDOW: u64 = 64 * 1024;
 /// A table's first line, with the end of the line before it.
 const HEADER: &[u8] = b"\n[[record]]\n";
 
-/// A chain's last record: its number and its digest. Number 0 and
-/// [`FIRST`] where the writer has none.
-pub(crate) type Head = (u64, Digest);
-
 /// What this process knows of one file: how far it has looked, and the
 /// head of each writer it has met.
 #[derive(Default)]
@@ -46,6 +50,8 @@ struct Tail {
     looked: bool,
     length: u64,
     heads: HashMap<String, Head>,
+    /// Whether this process's own append ended the file at `length`, whole.
+    whole: bool,
 }
 
 fn tails() -> &'static Mutex<HashMap<PathBuf, Tail>> {
@@ -54,63 +60,66 @@ fn tails() -> &'static Mutex<HashMap<PathBuf, Tail>> {
     &TAILS
 }
 
-/// The head of `writer`'s chain in the file at `path`, read while the
-/// caller holds the lock, through a handle of its own that only reads: the
+/// Whether this process left the file at `path` whole at `length`, the
+/// length it has now: its own append ended it there, and nothing changed
+/// its length since — so its end needs no seal, and is not read.
+pub(crate) fn whole_at(path: &Path, length: u64) -> bool {
+    tails()
+        .locked()
+        .get(path)
+        .is_some_and(|tail| tail.looked && tail.whole && tail.length == length)
+}
+
+/// The head of `writer`'s chain in the file at `path`, `length` long now,
+/// read while the caller holds the lock, through a handle of its own that
+/// only reads and is opened only where there is something to read: the
 /// file is open for writing only for the write.
-pub(crate) fn head(path: &Path, writer: &str) -> io::Result<Head> {
-    let mut file = match File::open(path) {
-        Ok(file) => Some(file),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error),
-    };
-    let length = match &file {
-        Some(file) => file.metadata()?.len(),
-        None => 0,
-    };
+pub(crate) fn head(path: &Path, length: u64, writer: &str) -> io::Result<Head> {
     let mut all = tails().locked();
     let tail = all.entry(path.to_path_buf()).or_default();
     if length < tail.length {
         *tail = Tail::default();
     }
-    if let Some(file) = file.as_mut()
-        && tail.looked
-        && length > tail.length
-    {
-        let appended = read_from(file, tail.length, length)?;
+    let mut file = None;
+    if tail.looked && length > tail.length {
+        let appended = read_from(file.insert(File::open(path)?), tail.length, length)?;
         for entry in parse(&appended).entries {
             if let Some(writer) = entry.writer.clone() {
                 tail.heads.insert(writer, head_of(&entry));
             }
         }
+        tail.whole = false;
     }
     tail.length = length;
     tail.looked = true;
     if let Some(head) = tail.heads.get(writer) {
         return Ok(*head);
     }
-    let head = match file.as_mut() {
-        Some(file) => from_the_end(file, length, writer)?,
-        None => (0, FIRST),
+    let head = match (length, file) {
+        (0, _) => Head::GENESIS,
+        (_, Some(mut file)) => from_the_end(&mut file, length, writer)?,
+        (_, None) => from_the_end(&mut File::open(path)?, length, writer)?,
     };
     tail.heads.insert(writer.to_string(), head);
     Ok(head)
 }
 
 /// `writer` appended its record `head` to `path`, which is now `length`
-/// long.
+/// long and ends whole.
 pub(crate) fn appended(path: &Path, writer: &str, head: Head, length: u64) {
     let mut all = tails().locked();
     let tail = all.entry(path.to_path_buf()).or_default();
     tail.length = length;
     tail.looked = true;
+    tail.whole = true;
     tail.heads.insert(writer.to_string(), head);
 }
 
 fn head_of(entry: &AuditEntry) -> Head {
-    (
-        entry.position.unwrap_or_default(),
-        entry.digest.unwrap_or(FIRST),
-    )
+    Head {
+        position: entry.position.unwrap_or_default(),
+        digest: entry.digest.unwrap_or(FIRST),
+    }
 }
 
 /// The bytes from `start` to `end`.
@@ -144,7 +153,7 @@ fn from_the_end(file: &mut File, length: u64, writer: &str) -> io::Result<Head> 
             .map(head_of);
         match found {
             Some(head) => return Ok(head),
-            None if start == 0 => return Ok((0, FIRST)),
+            None if start == 0 => return Ok(Head::GENESIS),
             None => window = window.saturating_mul(4),
         }
     }
