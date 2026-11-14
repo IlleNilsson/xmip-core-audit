@@ -12,9 +12,9 @@ use std::fmt::Write;
 
 use codec::civil::rfc3339_nanos;
 use codec::toml::{quote, quote_into};
+use xcore::audit_chain::{Digest, digest, written};
 use xcore::{AuditId, ExecutionPhase, Severity};
 
-use crate::audit_chain::{Digest, digest, written};
 use crate::execution_scope::ExecutionScope;
 use crate::origin::Origin;
 
@@ -294,6 +294,24 @@ mod tests {
             probe.line()
         );
     }
+
+    /// The bytes of a chain written before its rule moved below the audit
+    /// capability (2026-11-13), held: every chain already written still
+    /// verifies.
+    #[test]
+    fn a_chain_digests_as_it_always_has() {
+        let (_, first) = record().chained("edge-01", 1, &[0; 32]);
+        let (second_table, second) = record().chained("edge-01", 2, &first);
+        assert_eq!(written(&first), GOLDEN_FIRST);
+        assert_eq!(written(&second), GOLDEN_SECOND);
+        assert!(
+            second_table.contains(&format!("previous = \"{GOLDEN_FIRST}\"\n")),
+            "{second_table}"
+        );
+    }
+
+    const GOLDEN_FIRST: &str = "e0fa75a0f94593312804b3bad7586b6048bc6efbafe37851453a92a08b9ea6ac";
+    const GOLDEN_SECOND: &str = "1a2d0dae91e7bb910fdf0569cdab6d22595b0854ac3be707475816d19bebe512";
 
     #[test]
     fn the_line_is_one_line_that_says_what_and_where() {

@@ -62,9 +62,13 @@ Every record carries its place in its writer's chain (amended 2026-10-10:
 *one chain per writer*): the writer — `Origin::writer`, the location the
 process declared where it is a node's, else the program's name — its number
 there from 1, the SHA-256 digest of the record before it in that chain
-(`previous`, 64 zeros for the first) and its own (`digest`). The rule is
-`audit_chain`, here once: `digest` is the SHA-256 of a record's canonical
-form, and `walk` takes one writer's records in the order the log holds them
+(`previous`, 64 zeros for the first) and its own (`digest`). How a chain is
+formed is the estate's one rule, `xcore::audit_chain`, which Xmip Storage
+chains by too: where a writer's chain starts, the number and the digest
+before it each next record takes from its writer's `Head`, and `digest`,
+the SHA-256 of a record's canonical form (`codec::digest`); until
+2026-11-13 this crate and Xmip Storage each held it over `sha2` (ADR-0070,
+amendment 2026-11-13). The walk is `audit_chain`, here once: `walk` takes one writer's records in the order the log holds them
 and says, in one sentence opening OK or FAILED, the first place the chain
 breaks — a record whose content does not match its digest (changed), one
 whose number skips (deleted before it), one out of its order, or one whose
@@ -75,7 +79,12 @@ whose number skips (deleted before it), one out of its order, or one whose
 what was appended since this process last looked, or, for a writer it has
 not met, the file read back from its end to that writer's last record, so a
 program started again goes on from its last record — and appends the record
-after it in one write (`file_chain`). The canonical form is the record's
+after it in one write (`file_chain`). A record is said written only once it
+is on the disk: the file's one writer in a process appends every record
+waiting in one write and one durable flush, so records handed over
+together share it, and reads the file only where this process did not
+leave it as it stands (`file_sink::writer`; ADR-0062, amendment
+2026-11-13). The canonical form is the record's
 `[[record]]` table exactly as written, its blank line with it, without the
 one line `digest = "…"`; `writer`, `position` and `previous` stand after
 `audit_id`, and `digest` after them. **In Xmip Storage** a node's records
@@ -126,7 +135,7 @@ the two equal over every column, order, page, filter and time window).
 `audit_query::AuditQuery` is what every surface asks, in the same
 words: who (`location`, at and beneath a scope; `host`, the records that
 declared none; `program`; `record`, one of them), the scope `pattern` —
-`observe::wildcard`, the estate's one wildcard, over each location, a record
+`node::wildcard`, the estate's one wildcard, over each location, a record
 with none standing at the root — `severity`, `action`, `from` and `to`,
 `sort` by any `audit_column::Column` either way, and a bounded page
 (`offset`, `limit`, at most 1,000). Its answer counts what matched, gives

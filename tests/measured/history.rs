@@ -1,7 +1,7 @@
 //! A history of audit records as the file sink writes them: what
 //! `audit_store`'s tests and the module's timing program both read. Shared,
-//! not copied: `src/audit_store.rs`'s tests take it with `#[path]`, and the
-//! includer brings the record's names into scope for it (`super::*`).
+//! not copied: `src/audit_store.rs` takes it for its tests with `#[path]`,
+//! and the includer brings the record's names into scope for it (`super`).
 
 use std::collections::BTreeMap;
 use std::path::Path;

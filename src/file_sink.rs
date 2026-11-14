@@ -11,16 +11,18 @@
 //! Each record is appended in its writer's audit chain, holding the lock
 //! beside the file (`crate::file_chain`; ADR-0070 clause 5), and never onto
 //! a table a write left unfinished: that is sealed apart first, its bytes
-//! kept as written (`crate::audit_fragment`).
+//! kept as written (`crate::audit_fragment`). A record is written only once
+//! it is on the disk: the file's one writer in this process
+//! ([`writer`]) appends what waits in one write and flushes it durably
+//! before any of it is said written, so records handed over together share
+//! one flush (ADR-0062, amendment 2026-11-13).
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use crate::audit_fragment::{BOUNDARY, sealing};
 use crate::audit_record::AuditRecord;
-use crate::file_chain::{self, LOCK_NAME};
 use crate::{AuditError, AuditSink};
+
+mod writer;
 
 /// The environment variable that names the audit directory when a program
 /// was told none.
@@ -67,72 +69,26 @@ impl FileSink {
 }
 
 impl AuditSink for FileSink {
+    /// `record` appended in its writer's chain and on the disk, or why not.
     fn write(&self, record: &AuditRecord) -> Result<(), AuditError> {
-        let refused = |error: std::io::Error| {
+        writer::of(&self.directory).keep(record).map_err(|error| {
             AuditError::new(format!(
                 "{} could not be written: {error}",
                 self.path().display()
             ))
-        };
-
-        fs::create_dir_all(&self.directory).map_err(refused)?;
-        self.chained(record).map_err(refused)
+        })
     }
-}
-
-impl FileSink {
-    /// Append `record` in its writer's audit chain (ADR-0070 clause 5):
-    /// holding the lock beside the file, read where the chain stands and
-    /// whether the file ends in an unfinished table, then append the seal
-    /// it needs and the record after it, in one write. The file is open
-    /// for writing only for that write, so a reader is never kept out of it
-    /// while the sink only reads.
-    fn chained(&self, record: &AuditRecord) -> std::io::Result<()> {
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(self.directory.join(LOCK_NAME))?;
-        lock.lock()?;
-        let path = self.path();
-        let seal = seal(&path)?.unwrap_or_default();
-        let writer = record.origin.writer();
-        let (position, previous) = file_chain::head(&path, &writer)?;
-        let (table, own) = record.chained(&writer, position + 1, &previous);
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
-        file.write_all(format!("{seal}{table}").as_bytes())?;
-        let length = file.metadata()?.len();
-        drop(file);
-        file_chain::appended(&path, &writer, (position + 1, own), length);
-        // The lock ends as it is dropped, after the write.
-        drop(lock);
-        Ok(())
-    }
-}
-
-/// What ends the unfinished table the file at `path` ends in, where it ends
-/// in one: its bytes are kept as written and the seal follows them, so they
-/// stand apart as a fragment and the record after them is not written onto
-/// them (`crate::audit_fragment`). Read through a handle that only reads.
-fn seal(path: &Path) -> std::io::Result<Option<String>> {
-    let mut file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let length = file.metadata()?.len();
-    let mut end = [0; BOUNDARY.len()];
-    let last = end.len().min(usize::try_from(length).unwrap_or(usize::MAX));
-    file.seek(SeekFrom::End(-i64::try_from(last).unwrap_or_default()))?;
-    file.read_exact(&mut end[..last])?;
-    Ok(sealing(&end[..last]))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit_chain::chains;
+    use crate::audit_entry::parse;
     use crate::origin::Origin;
     use std::collections::BTreeMap;
+    use std::fs;
+    use std::sync::Arc;
     use xcore::{AuditId, ExecutionPhase, Severity};
 
     fn record(action: &str) -> AuditRecord {
@@ -168,6 +124,44 @@ mod tests {
         assert_eq!(text.matches("[[record]]").count(), 2, "{text}");
         assert!(text.contains("action = \"start\""), "{text}");
         assert!(text.contains("action = \"stop\""), "{text}");
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn records_handed_over_at_once_are_each_kept_once_in_one_whole_chain() {
+        let directory = scratch("together");
+        let sink = Arc::new(FileSink::new(&directory));
+        let (threads, each) = (8, 25);
+        let writing: Vec<_> = (0..threads)
+            .map(|thread| {
+                let sink = Arc::clone(&sink);
+                std::thread::spawn(move || {
+                    for number in 0..each {
+                        let one = AuditRecord {
+                            audit_id: AuditId::new(
+                                u128::try_from(thread * 1_000 + number).expect("small"),
+                            ),
+                            ..record(&format!("t{thread}-{number}"))
+                        };
+                        sink.write(&one).expect("written");
+                    }
+                })
+            })
+            .collect();
+        for thread in writing {
+            thread.join().expect("wrote");
+        }
+
+        let bytes = fs::read(sink.path()).expect("read");
+        let read = parse(&bytes);
+        assert_eq!(read.entries.len(), threads * each);
+        let mut actions: Vec<&str> = read.entries.iter().map(|e| e.action.as_str()).collect();
+        actions.sort_unstable();
+        actions.dedup();
+        assert_eq!(actions.len(), threads * each, "each kept once");
+        let verdict = &chains(&read.entries, &["probe"])[0];
+        assert!(verdict.whole(), "{}", verdict.said());
+        assert_eq!(verdict.records, u64::try_from(threads * each).expect("few"));
         let _ = fs::remove_dir_all(&directory);
     }
 

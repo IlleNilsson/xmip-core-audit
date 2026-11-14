@@ -18,9 +18,9 @@
 use std::cmp::Ordering;
 
 use codec::civil::read_rfc3339;
-use observe::Scope;
+use node::Scope;
+use node::wildcard::matches;
 use observe::run::shown;
-use observe::wildcard::matches;
 
 use xcore::Severity;
 
