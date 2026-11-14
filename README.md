@@ -6,8 +6,12 @@ origin — the program, host and process, and the location it serves, the one
 home of its cluster and its node — its scope when it belongs to a Message's
 execution (`execution_scope::ExecutionScope`, the artifact that acted spelled
 out: its kind, name and version, no reference), its action, phase and
-severity; an `AuditPolicy` decides record or suppress; an `AuditSink` persists;
-`Audit` puts the three together.
+severity, and its properties: a map of names and values, or what an act
+says every time typed, each value written where the record is and never
+made a string first (`audit_record::Properties`, said in the order of
+their names, so the record is written the same either way; a node's
+Publication, 2026-11-14); an `AuditPolicy` decides record or suppress; an
+`AuditSink` persists; `Audit` puts the three together.
 
 Audit is cross-cutting, not a stage. A record of an act on a Message holds
 that Message and its Streams' bytes, spelled out as they were, with each

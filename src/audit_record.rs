@@ -8,7 +8,7 @@
 //! none, and its [`Origin`] says where it came from (ADR-0062).
 
 use std::collections::BTreeMap;
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 
 use codec::civil::rfc3339_nanos;
 use codec::toml::{quote, quote_into};
@@ -22,8 +22,30 @@ use crate::origin::Origin;
 /// its canonical form leaves out.
 pub const DIGEST_KEY: &str = "digest";
 
+/// What an audit record says beside its own fields, its
+/// `[record.properties]`: each name with its value, said in the order of
+/// their names, so a record is written the same however it was made — its
+/// canonical form is what its digest is taken of (ADR-0070 clause 5). A
+/// map of them is one; an act whose record says the same names every time
+/// says them typed, each value written where the record is and never made
+/// a string first (a node's Publication; 2026-11-14).
+pub trait Properties {
+    /// Each name and its value, in the order of their names.
+    fn each(&self, said: &mut dyn FnMut(&str, &dyn Display));
+}
+
+impl Properties for BTreeMap<String, String> {
+    fn each(&self, said: &mut dyn FnMut(&str, &dyn Display)) {
+        for (name, value) in self {
+            said(name, value);
+        }
+    }
+}
+
+/// One audit record, its properties a map of them unless an act says its
+/// own ([`Properties`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AuditRecord {
+pub struct AuditRecord<P = BTreeMap<String, String>> {
     pub audit_id: AuditId,
     pub origin: Origin,
     /// The Message execution this action belongs to; `None` for a program's
@@ -34,10 +56,10 @@ pub struct AuditRecord {
     pub severity: Severity,
     pub timestamp_unix_nanos: i128,
     pub message: Option<String>,
-    pub properties: BTreeMap<String, String>,
+    pub properties: P,
 }
 
-impl AuditRecord {
+impl<P: Properties> AuditRecord<P> {
     /// A failure: the `Failure` phase, or an `Error` whatever the phase.
     /// Always audited and always persisted; that is not policy.
     #[must_use]
@@ -116,15 +138,18 @@ impl AuditRecord {
             field(&mut out, "artifact", &scope.artifact.name);
         }
 
-        if !self.properties.is_empty() {
-            out.push_str("[record.properties]\n");
-            for (key, value) in &self.properties {
-                quote_into(&mut out, key);
-                out.push_str(" = ");
-                quote_into(&mut out, value);
-                out.push('\n');
+        // Headed by its table where it says anything.
+        let mut first = true;
+        self.properties.each(&mut |name, value| {
+            if first {
+                out.push_str("[record.properties]\n");
+                first = false;
             }
-        }
+            quote_into(&mut out, name);
+            out.push_str(" = ");
+            quote_into(&mut out, value);
+            out.push('\n');
+        });
 
         out.push('\n');
         (out, at)
@@ -145,9 +170,9 @@ impl AuditRecord {
             let _ = write!(out, ": {message}");
         }
 
-        for (key, value) in &self.properties {
-            let _ = write!(out, "; {key}={value}");
-        }
+        self.properties.each(&mut |name, value| {
+            let _ = write!(out, "; {name}={value}");
+        });
 
         let _ = write!(
             out,
@@ -186,6 +211,14 @@ mod tests {
     use xcore::{ExecutionId, JourneyId, MessageId};
 
     fn record() -> AuditRecord {
+        said(BTreeMap::from([(
+            "exception type".to_string(),
+            "Boom".to_string(),
+        )]))
+    }
+
+    /// The test's record, saying `properties`.
+    fn said<P>(properties: P) -> AuditRecord<P> {
         AuditRecord {
             audit_id: AuditId::new(1),
             origin: Origin {
@@ -201,8 +234,39 @@ mod tests {
             severity: Severity::Error,
             timestamp_unix_nanos: 1_790_000_000_123_456_789,
             message: Some("a \"quoted\"\nline".to_string()),
-            properties: BTreeMap::from([("exception type".to_string(), "Boom".to_string())]),
+            properties,
         }
+    }
+
+    /// Properties said typed, in their names' order, are written as the
+    /// map of the same names and values is: one table, one line, one
+    /// digest.
+    #[test]
+    fn typed_properties_are_written_as_the_map_of_them_is() {
+        struct Typed;
+        impl Properties for Typed {
+            fn each(&self, said: &mut dyn FnMut(&str, &dyn Display)) {
+                said("exception type", &"Boom");
+                said("length", &42_u64);
+            }
+        }
+        let mut mapped = record();
+        mapped
+            .properties
+            .insert("length".to_string(), "42".to_string());
+        let typed = said(Typed);
+        assert_eq!(typed.toml(), mapped.toml());
+        assert_eq!(typed.line(), mapped.line());
+        assert_eq!(
+            typed.chained("edge-01", 1, &[0; 32]),
+            mapped.chained("edge-01", 1, &[0; 32])
+        );
+        assert!(
+            !said(BTreeMap::<String, String>::new())
+                .toml()
+                .contains("[record.properties]"),
+            "nothing said, no table"
+        );
     }
 
     #[test]
