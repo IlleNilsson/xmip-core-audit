@@ -1,0 +1,9 @@
+[submodule "file"]
+	path = file
+	url = https://github.com/IlleNilsson/xmip-core-audit-file.git
+[submodule "syslog"]
+	path = syslog
+	url = https://github.com/IlleNilsson/xmip-core-audit-syslog.git
+[submodule "windows-event-log"]
+	path = windows-event-log
+	url = https://github.com/IlleNilsson/xmip-core-audit-windows-event-log.git

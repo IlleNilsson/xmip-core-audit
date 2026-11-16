@@ -1,9 +1,12 @@
 //! [`Audit`]: policy, then the sink, then — when the sink cannot keep the
-//! record or there is none — the operating system's log. The fallback rule
-//! of ADR-0062 clause 3 is written here and nowhere else in the estate.
+//! record or there is none — the operating system's log the program handed
+//! in ([`crate::operating_system_log`]). The fallback rule of ADR-0062
+//! clause 3 is written here and nowhere else in the estate.
+
+use xcore::Severity;
 
 use crate::audit_record::AuditRecord;
-use crate::operating_system_log::OperatingSystemLog;
+use crate::operating_system_log;
 use crate::{AuditDecision, AuditError, AuditPolicy, AuditSink};
 
 /// What became of one record.
@@ -36,7 +39,7 @@ impl<'a> Audit<'a> {
     /// Neither the sink nor the operating system's log kept a record policy
     /// recorded; the error names both reasons.
     pub fn emit(&self, record: &AuditRecord) -> Result<AuditOutcome, AuditError> {
-        self.emit_to(record, OperatingSystemLog::write)
+        self.emit_to(record, operating_system_log::write)
     }
 
     /// [`Self::emit`], with the operating system's log given: the tests hand
@@ -44,7 +47,7 @@ impl<'a> Audit<'a> {
     pub(crate) fn emit_to(
         &self,
         record: &AuditRecord,
-        fallback: fn(&AuditRecord, &str) -> Result<String, AuditError>,
+        fallback: fn(Severity, &str) -> Result<String, AuditError>,
     ) -> Result<AuditOutcome, AuditError> {
         // Failures are always audited and failure records always persisted:
         // that is not policy (doc/audit-record.md).
@@ -70,9 +73,12 @@ impl<'a> Audit<'a> {
                 Err(error) => format!("the audit sink refused it: {error}"),
             },
         };
-        let why = format!("Xmip audit could not persist this record ({reason}).");
+        let text = format!(
+            "Xmip audit could not persist this record ({reason}). {}",
+            record.line()
+        );
 
-        match fallback(record, &why) {
+        match fallback(record.severity, &text) {
             Ok(log) => Ok(AuditOutcome::OperatingSystem { log, reason }),
             Err(error) => Err(AuditError::new(format!(
                 "{reason}, and the operating system's log refused it too: {error}"
@@ -106,12 +112,12 @@ mod tests {
     /// and whether the sentence opened with why. `Result`, because that is
     /// the fallback's shape.
     #[allow(clippy::unnecessary_wraps)]
-    fn kept_here(record: &AuditRecord, why: &str) -> Result<String, AuditError> {
+    fn kept_here(_: Severity, text: &str) -> Result<String, AuditError> {
         assert!(
-            why.starts_with("Xmip audit could not persist this record ("),
-            "{why}"
+            text.starts_with("Xmip audit could not persist this record ("),
+            "{text}"
         );
-        assert_ne!(record.line(), "");
+        assert!(text.contains("probe"), "the record follows why: {text}");
         Ok("this test".to_string())
     }
 

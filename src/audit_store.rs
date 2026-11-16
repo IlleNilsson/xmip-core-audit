@@ -1,5 +1,12 @@
-//! The audit store read: the file [`crate::file_sink::FileSink`] appends to,
-//! asked by an [`AuditQuery`] (ADR-0062, amendment 2026-09-29).
+//! The audit store read: [`FILE_NAME`] in the directory [`directory`]
+//! decides, which `xmip-core-audit-file`'s file sink appends to, asked by an
+//! [`AuditQuery`] (ADR-0062, amendment 2026-09-29).
+//!
+//! Where the file is, is decided here and nowhere else: the directory a
+//! program was told (its configuration, a node's area), else
+//! [`DIRECTORY_VARIABLE`], else none. The sink writes there and every
+//! reader reads there by this one rule; the estate's own tooling sets the
+//! variable to `.local-work/audit` for everything it starts.
 //!
 //! The store keeps no record. It keeps an index of each file it is asked
 //! ([`crate::audit_index`]), shared by every caller in the process, and
@@ -29,7 +36,13 @@ use crate::audit_fragment::Fragment;
 use crate::audit_index::Index;
 use crate::audit_query::{AuditPage, AuditQuery};
 use crate::audit_scan::Scan;
-use crate::file_sink::FileSink;
+
+/// The environment variable that names the audit directory when a program
+/// was told none.
+pub const DIRECTORY_VARIABLE: &str = "XMIP_AUDIT_DIRECTORY";
+
+/// The file in that directory every program appends to: one place to read.
+pub const FILE_NAME: &str = "audit.toml";
 
 /// The bytes the indexes of one process hold together, at most, the blocks
 /// each read lately with them — half the index, half those blocks. A
@@ -56,12 +69,26 @@ fn indexes() -> &'static Mutex<Indexes> {
     &INDEXES
 }
 
-/// The file a reader reads: the one a program writing into `directory`
-/// would write, by the one rule ([`FileSink::stated`]) — `directory` when it
-/// is given and not blank, else `XMIP_AUDIT_DIRECTORY`, else none.
+/// The audit directory of a program told `stated`: `stated` when it is
+/// given and not blank, else the directory [`DIRECTORY_VARIABLE`] names,
+/// else none.
+#[must_use]
+pub fn directory(stated: Option<&Path>) -> Option<PathBuf> {
+    stated
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            std::env::var_os(DIRECTORY_VARIABLE)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+/// The file a reader reads: [`FILE_NAME`] in the [`directory`] of a program
+/// told `directory`, the one a program writing there writes.
 #[must_use]
 pub fn stated(directory: Option<&Path>) -> Option<PathBuf> {
-    FileSink::stated(directory).map(|sink| sink.path())
+    self::directory(directory).map(|directory| directory.join(FILE_NAME))
 }
 
 /// Ask `file`. A file that is not there holds nothing: nothing has been
@@ -208,11 +235,9 @@ mod tests {
     use super::*;
     use crate::audit_block::BLOCK;
     use crate::audit_column::Column;
-    use crate::program_audit::ProgramAudit;
     use std::collections::BTreeMap;
-    use std::fs;
-
-    use xcore::{ExecutionPhase, Severity};
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
 
     fn scratch(name: &str) -> PathBuf {
         let directory =
@@ -222,16 +247,31 @@ mod tests {
         directory
     }
 
-    fn start(audit: &ProgramAudit, action: &str) {
-        audit
-            .record(
-                action,
-                ExecutionPhase::Begin,
-                Severity::Information,
-                None,
-                BTreeMap::new(),
-            )
-            .expect("recorded");
+    /// The program `probe`'s record of `action`, from `location`, appended
+    /// to `file` as its table, a moment after the one before it.
+    fn start(file: &Path, action: &str, location: Option<&str>) {
+        let before = fs::read_to_string(file).map_or(0, |text| text.matches("[[record]]").count());
+        let number = u32::try_from(before).expect("few");
+        let record = AuditRecord {
+            audit_id: AuditId::new(u128::from(number) + 1),
+            origin: Origin {
+                location: location.map(str::to_string),
+                ..Origin::here("probe")
+            },
+            scope: None,
+            action: action.to_string(),
+            phase: ExecutionPhase::Begin,
+            severity: Severity::Information,
+            timestamp_unix_nanos: 1_790_000_000_000_000_000 + i128::from(number),
+            message: None,
+            properties: BTreeMap::new(),
+        };
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(file)
+            .and_then(|mut opened| opened.write_all(record.toml().as_bytes()))
+            .expect("appended");
     }
 
     fn query(pairs: &[(&str, &str)]) -> AuditQuery {
@@ -316,17 +356,15 @@ mod tests {
     #[test]
     fn what_was_appended_since_is_read_and_what_was_read_is_kept() {
         let directory = scratch("grows");
-        let audit = ProgramAudit::new("probe", Some(&directory));
         let at = configure::fixture::test_cluster().node_scope(0);
-        audit.locate(&at);
-        let file = audit.file().expect("a file");
+        let file = stated(Some(&directory)).expect("a file");
         let oldest = query(&[("order", "ascending")]);
 
-        start(&audit, "one");
+        start(&file, "one", Some(&at));
         assert_eq!(ask(&file, &oldest).expect("read").read, 1);
 
-        start(&audit, "two");
-        start(&audit, "three");
+        start(&file, "two", Some(&at));
+        start(&file, "three", Some(&at));
         let page = ask(&file, &oldest).expect("read");
         assert_eq!(actions(&page), ["one", "two", "three"]);
         assert_eq!(page.records[2].location.as_deref(), Some(at.as_str()));
@@ -337,18 +375,29 @@ mod tests {
     #[test]
     fn a_file_that_got_shorter_is_read_again_from_its_start() {
         let directory = scratch("replaced");
-        let audit = ProgramAudit::new("probe", Some(&directory));
-        let file = audit.file().expect("a file");
-        start(&audit, "one");
-        start(&audit, "two");
+        let file = stated(Some(&directory)).expect("a file");
+        start(&file, "one", None);
+        start(&file, "two", None);
         assert_eq!(ask(&file, &query(&[])).expect("read").read, 2);
 
         fs::remove_file(&file).expect("removed");
-        start(&audit, "again");
+        start(&file, "again", None);
         let page = ask(&file, &query(&[])).expect("read");
 
         assert_eq!(actions(&page), ["again"]);
         let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_stated_directory_wins_and_a_blank_one_is_no_statement() {
+        let stated_one = stated(Some(Path::new("stated"))).expect("stated");
+        assert_eq!(stated_one, Path::new("stated").join(FILE_NAME));
+
+        // Blank is not a statement; what is left is the variable, which this
+        // test neither sets nor clears, so it only asks the answer be one.
+        let blank = directory(Some(Path::new("")));
+        let from_variable = directory(None);
+        assert_eq!(blank, from_variable);
     }
 
     #[test]

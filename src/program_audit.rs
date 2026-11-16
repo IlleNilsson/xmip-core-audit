@@ -5,11 +5,14 @@
 //! A Rust program holds one; a .NET program and PowerShell reach the same
 //! one through the runtime's library (`xmip_operate.h` section 9). Every
 //! record is kept by policy — a program's acts are few and every one
-//! matters — in the file sink [`FileSink::stated`] finds, or the operating
-//! system's log when there is none.
+//! matters — by the sink the program that runs handed in as it started,
+//! every Xmip program's being `xmip-core-audit-file`'s file sink, or by the
+//! operating system's log it handed in ([`crate::operating_system_log`])
+//! where there is none or the sink cannot keep a record. Which sink and
+//! which log, audit does not know: it holds each by its seam.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -17,7 +20,6 @@ use xcore::{AuditId, Clock, ExecutionPhase, IdGenerator, Severity, SystemClock, 
 
 use crate::audit_record::AuditRecord;
 use crate::emit::{Audit, AuditOutcome};
-use crate::file_sink::FileSink;
 use crate::keeper;
 use crate::origin::Origin;
 use crate::redaction::without_credentials;
@@ -29,7 +31,7 @@ const EVERYTHING: MinimumSeverityPolicy = MinimumSeverityPolicy {
 };
 
 /// One program's audit: who it is and where its records go.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ProgramAudit {
     origin: Origin,
     /// Where the process declared it belongs, once; shared by every clone,
@@ -39,19 +41,33 @@ pub struct ProgramAudit {
     /// Whether the process belongs to a run that declared itself hidden;
     /// shared by every clone as the location is.
     hidden: Arc<AtomicBool>,
-    sink: Option<FileSink>,
+    /// The sink the program handed in, shared by every clone.
+    sink: Option<Arc<dyn AuditSink>>,
+}
+
+impl fmt::Debug for ProgramAudit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProgramAudit")
+            .field("origin", &self.origin)
+            .field("location", &self.location)
+            .field("hidden", &self.hidden)
+            .field("sink", &self.sink.is_some())
+            .finish()
+    }
 }
 
 impl ProgramAudit {
-    /// `program` in this process, auditing into `directory` when it is
-    /// stated, else where [`FileSink::stated`] says.
+    /// `program` in this process, its records kept by `sink`, the one the
+    /// program that runs hands in as it starts; with none, every record goes
+    /// to the operating system's log.
     #[must_use]
-    pub fn new(program: &str, directory: Option<&Path>) -> Self {
+    pub fn new(program: &str, sink: Option<impl AuditSink + 'static>) -> Self {
         Self {
             origin: Origin::here(program),
             location: Arc::new(OnceLock::new()),
             hidden: Arc::new(AtomicBool::new(false)),
-            sink: FileSink::stated(directory),
+            sink: sink.map(|sink| Arc::new(sink) as Arc<dyn AuditSink>),
         }
     }
 
@@ -103,13 +119,6 @@ impl ProgramAudit {
         }
     }
 
-    /// The file records go to, or `None` when they go to the operating
-    /// system's log.
-    #[must_use]
-    pub fn file(&self) -> Option<PathBuf> {
-        self.sink.as_ref().map(FileSink::path)
-    }
-
     /// Record one act, after everything handed to the [`keeper`] before it:
     /// a program's records are kept in the order it made them. An address's
     /// user and password never reach the record, in the message or in a
@@ -140,9 +149,7 @@ impl ProgramAudit {
                 .map(|(key, value)| (key, without_credentials(&value)))
                 .collect(),
         };
-        let sink = self.sink.as_ref().map(|sink| sink as &dyn AuditSink);
-
-        Audit::new(&EVERYTHING, sink).emit(&record)
+        Audit::new(&EVERYTHING, self.sink.as_deref()).emit(&record)
     }
 
     /// Record that the program failed: `action`, the Failure phase, Error.
@@ -178,14 +185,38 @@ impl ProgramAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::sync::Mutex;
+
+    /// A sink that keeps what it is handed, for the test to read.
+    #[derive(Clone, Default)]
+    struct Kept(Arc<Mutex<Vec<AuditRecord>>>);
+
+    impl AuditSink for Kept {
+        fn write(&self, record: &AuditRecord) -> Result<(), AuditError> {
+            self.0
+                .lock()
+                .map_err(|_| AuditError::new("poisoned"))?
+                .push(record.clone());
+            Ok(())
+        }
+    }
+
+    impl Kept {
+        /// Every record kept, as its TOML table.
+        fn text(&self) -> String {
+            self.0
+                .lock()
+                .expect("kept")
+                .iter()
+                .map(AuditRecord::toml)
+                .collect()
+        }
+    }
 
     #[test]
-    fn a_program_records_into_the_directory_it_was_told() {
-        let directory =
-            std::env::temp_dir().join(format!("xmip-program-audit-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        let audit = ProgramAudit::new("probe", Some(&directory));
+    fn a_program_records_into_the_sink_it_was_handed() {
+        let kept = Kept::default();
+        let audit = ProgramAudit::new("probe", Some(kept.clone()));
 
         let outcome = audit
             .record(
@@ -198,23 +229,19 @@ mod tests {
             .expect("recorded");
 
         assert_eq!(outcome, AuditOutcome::Persisted);
-        let file = audit.file().expect("a file sink");
-        let text = fs::read_to_string(file).expect("read");
+        let text = kept.text();
         assert!(text.contains("program = \"probe\""), "{text}");
         assert!(!text.contains("location"), "none declared: {text}");
         assert!(
             text.contains("\"url\" = \"http://127.0.0.1:5087\""),
             "{text}"
         );
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn a_located_program_puts_its_location_on_every_record() {
-        let directory =
-            std::env::temp_dir().join(format!("xmip-program-located-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        let audit = ProgramAudit::new("probe", Some(&directory));
+        let kept = Kept::default();
+        let audit = ProgramAudit::new("probe", Some(kept.clone()));
         let earlier = audit.clone();
         let cluster = configure::fixture::test_cluster();
         let at = cluster.node_scope(0);
@@ -235,24 +262,21 @@ mod tests {
             )
             .expect("recorded");
 
-        let text = fs::read_to_string(audit.file().expect("a file")).expect("read");
+        let text = kept.text();
         assert_eq!(
             text.matches(&format!("location = \"{at}\"")).count(),
             2,
             "{text}"
         );
-        let blank = ProgramAudit::new("probe", None);
+        let blank = ProgramAudit::new("probe", None::<Kept>);
         blank.locate("  ");
         assert_eq!(blank.location(), None);
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn a_hidden_program_says_so_on_every_record_its_clones_make_too() {
-        let directory =
-            std::env::temp_dir().join(format!("xmip-program-hidden-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        let audit = ProgramAudit::new("probe", Some(&directory));
+        let kept = Kept::default();
+        let audit = ProgramAudit::new("probe", Some(kept.clone()));
         let earlier = audit.clone();
         audit.failed("before", "not hidden yet").expect("recorded");
         audit.hide();
@@ -260,8 +284,7 @@ mod tests {
         assert!(earlier.hidden(), "a clone shares the declaration");
         earlier.failed("after", "hidden").expect("recorded");
 
-        let text = fs::read_to_string(audit.file().expect("a file")).expect("read");
+        let text = kept.text();
         assert_eq!(text.matches("hidden = \"true\"").count(), 1, "{text}");
-        let _ = fs::remove_dir_all(&directory);
     }
 }

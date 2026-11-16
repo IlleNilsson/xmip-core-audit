@@ -7,12 +7,12 @@
 //!
 //! - handing a record over never waits for its keeping;
 //! - a page takes as long whatever the history behind it, over the
-//!   history `audit_store`'s tests read (`history.rs`, shared);
-//! - `written.rs`: a record the file sink keeps is on the disk within a
-//!   millisecond of the disk's own durable write of as many bytes.
+//!   history `audit_store`'s tests read (`history.rs`, shared).
+//!
+//! The file sink's write is held to the disk's own in its repository's
+//! timing program, `xmip-core-audit-file`'s `tests/measured/written.rs`.
 
 mod history;
-mod written;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;

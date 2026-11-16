@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/IlleNilsson/xmip-core-audit"
-description = "Configurable audit lifecycle records for every Xmip action and every Xmip program, and the operating system's log when audit cannot persist (ADR-0062)."
+description = "Configurable audit lifecycle records for every Xmip action and every Xmip program: the sink seam, the fallback to the operating system's log the program hands in when audit cannot persist (ADR-0062), and the audit file's one reader."
 
 [dependencies]
 # uuid-v7: an audit record's identifier is minted here, as every Xmip
@@ -17,8 +17,7 @@ description = "Configurable audit lifecycle records for every Xmip action and ev
 # clause 5).
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7"] }
 # The estate's encoding primitives: a record is written as TOML (quoted by
-# codec's one quoting) and stamped by the civil calendar; an entry in the
-# Windows Event Log crosses to Windows as codec's wide string.
+# codec's one quoting) and stamped by the civil calendar.
 codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
 
 # The one scope rule and the one wildcard: a reader asks who a record is by
@@ -29,10 +28,6 @@ node = { package = "xmip-core-node", git = "https://github.com/IlleNilsson/xmip-
 # Whether what a hidden run made is shown is observe's one rule
 # (`observe::run::shown`; ADR-0028, amendment 2026-09-30).
 observe = { package = "xmip-core-observe", git = "https://github.com/IlleNilsson/xmip-core-observe", branch = "main" }
-
-# The event source's name, XMIP_EVENT_SOURCE, from the header that declares it.
-abi = { package = "xmip-core-abi", git = "https://github.com/IlleNilsson/xmip-core-abi", branch = "main" }
-
 
 # The module's timing program (doc/governance/rust-style.md section 5c): a
 # plain cargo test leaves it out, and the landing runs it after every other
@@ -50,22 +45,11 @@ configure = { package = "xmip-core-configure", git = "https://github.com/IlleNil
 # it (`xcore::latency::spread`).
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7", "test-support"] }
 
-# The Event Log and the registry are C interfaces, reached from one file,
-# src/windows_event_log.rs (ADR-0050, amendment 2026-09-25).
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_System_EventLog",
-    "Win32_System_Registry",
-] }
-
 [lints.rust]
-# deny, not forbid, because forbid cannot be lowered anywhere: the one file
-# that calls the Windows Event Log, src/windows_event_log.rs, allows it with
-# its reason at the top (ADR-0050, amendment 2026-09-25), and nothing else
-# may. test/Unsafe.Test.ps1 holds the list.
-unsafe_code = "deny"
+# forbid, not deny: audit calls no C interface. The operating system's log
+# is a technology's, handed in (xmip-core-audit-windows-event-log keeps the
+# Event Log's calls).
+unsafe_code = "forbid"
 
 [lints.clippy]
 # Warned, never denied. doc/governance/rust-style.md section 3.

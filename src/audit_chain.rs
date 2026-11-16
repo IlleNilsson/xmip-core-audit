@@ -9,7 +9,7 @@
 //! How a chain is formed — where a writer's chain starts, the number and
 //! the digest before it each next record takes, and the digest — is the
 //! estate's one rule, `xcore::audit_chain`, beneath every log. The file
-//! sink forms the chain by it as it appends (`crate::file_sink`), Xmip
+//! sink forms the chain by it as it appends (`xmip-core-audit-file`), Xmip
 //! Storage as it writes a node's records (`xmip-core-persist`, its one
 //! writer to the runtime database); each digests its records over its own
 //! canonical form and hands the records of one writer, in the order the
