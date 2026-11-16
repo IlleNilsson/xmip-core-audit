@@ -2,56 +2,75 @@
 //! persist it (ADR-0062 clause 3) — the Windows Event Log, the systemd
 //! journal or syslog on Linux, the unified log on macOS.
 //!
-//! It is the fallback, not a second sink: [`crate::emit::Audit`] is the
-//! only caller, and only after the configured sink refused a record or
-//! there was none. Each platform's writer is a technology under this
-//! capability in `architecture.toml`; they live here because the fallback
-//! is the capability's own rule and a capability does not depend on its
-//! technologies (ADR-0044).
-//!
-//! On Unix the record is one datagram to the local syslog socket, which the
-//! journal reads on a systemd machine and the unified log on macOS; no unsafe
-//! reaches it. On Windows the Event Log has no interface but a C one, called
-//! from `windows_event_log.rs`, the one file in this crate that may hold
-//! unsafe code (ADR-0050, amendment 2026-09-25).
+//! It is the fallback, not a second sink: [`crate::emit::Audit`] writes to
+//! it only after the sink refused a record or there was none, and says why
+//! first. Which log that is, audit does not know: each is a technology under
+//! this capability in `architecture.toml` — `xmip-core-audit-windows-event-log`,
+//! `xmip-core-audit-syslog` — and a capability does not depend on its
+//! technologies (ADR-0044). The program that runs links the log its
+//! platform has and hands it in as it starts ([`hand`]); a .NET program
+//! reaches the same one through the runtime's library (`xmip_operate.h`
+//! section 9).
+
+use std::sync::OnceLock;
+
+use xcore::Severity;
 
 use crate::AuditError;
-use crate::audit_record::AuditRecord;
 
-/// The operating system's log on this machine.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct OperatingSystemLog;
-
-impl OperatingSystemLog {
-    /// Write `record` to the operating system's log, opening with `why` it
-    /// is there. Answers where it went, in words.
+/// A log of the operating system's: what audit falls back to.
+pub trait OperatingSystemLog: Send + Sync {
+    /// Write `text` at `severity`. Answers where it went, in words.
     ///
     /// # Errors
-    /// The operating system's log refused it too, or this platform has none
-    /// this crate writes to.
-    pub fn write(record: &AuditRecord, why: &str) -> Result<String, AuditError> {
-        let text = format!("{why} {}", record.line());
+    /// The log refused it, with the reason in words.
+    fn write(&self, severity: Severity, text: &str) -> Result<String, AuditError>;
+}
 
-        write(record, &text)
+/// The log this process was handed.
+static HANDED: OnceLock<Box<dyn OperatingSystemLog>> = OnceLock::new();
+
+/// Hand this process's audit the operating system's log, as the program
+/// starts. A process is handed one log: the first one handed stands.
+pub fn hand(log: impl OperatingSystemLog + 'static) {
+    let _ = HANDED.set(Box::new(log));
+}
+
+/// Write `text` at `severity` to the log this process was handed. Answers
+/// where it went, in words.
+///
+/// # Errors
+/// No log was handed, or the one handed refused it.
+pub fn write(severity: Severity, text: &str) -> Result<String, AuditError> {
+    match HANDED.get() {
+        Some(log) => log.write(severity, text),
+        None => Err(AuditError::new(
+            "this program handed its audit no operating system's log",
+        )),
     }
 }
 
-cfg_select! {
-    windows => {
-        fn write(record: &AuditRecord, text: &str) -> Result<String, AuditError> {
-            crate::windows_event_log::write(record.severity, text)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A log that says which it is, so no test writes to this machine's.
+    struct Said(&'static str);
+
+    impl OperatingSystemLog for Said {
+        fn write(&self, _: Severity, text: &str) -> Result<String, AuditError> {
+            Ok(format!("{} took {text}", self.0))
         }
     }
-    unix => {
-        fn write(record: &AuditRecord, text: &str) -> Result<String, AuditError> {
-            crate::syslog::write(record.severity, text)
-        }
-    }
-    _ => {
-        fn write(_: &AuditRecord, _: &str) -> Result<String, AuditError> {
-            Err(AuditError::new(
-                "this platform has no operating system log Xmip writes to",
-            ))
-        }
+
+    #[test]
+    fn the_first_log_handed_stands() {
+        hand(Said("the first"));
+        hand(Said("the second"));
+
+        assert_eq!(
+            write(Severity::Error, "it").expect("written"),
+            "the first took it"
+        );
     }
 }

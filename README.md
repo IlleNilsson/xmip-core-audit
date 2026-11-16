@@ -53,12 +53,17 @@ system's log is for when audit cannot persist, not for when it is behind
 (ADR-0062 clause 3). The keeper's own thread never waits for itself, and a
 job that panics does not end it.
 
-A program's records go to `file_sink::FileSink` — `audit.toml`, one
+A program's records go to the sink it hands its `ProgramAudit` as it
+starts (`ProgramAudit::new(program, sink)`, the seam `AuditSink`): every
+Xmip program's is `xmip-core-audit-file`'s `FileSink` — `audit.toml`, one
 `[[record]]` table per record, in the directory the program was told (its
 configuration's `AuditDirectory`), else the one `XMIP_AUDIT_DIRECTORY`
-names, else nowhere. The estate's tooling sets the variable to
-`.local-work/audit` for everything it starts. An address's user and password
-never reach a record (`redaction::without_credentials`).
+names, else nowhere. Where that directory is, is this crate's one rule,
+`audit_store::directory`, with `audit_store::DIRECTORY_VARIABLE` and
+`audit_store::FILE_NAME`: the sink writes there and the reader reads
+there. The estate's tooling sets the variable to `.local-work/audit` for
+everything it starts. An address's user and password never reach a record
+(`redaction::without_credentials`).
 
 ## The audit log is a chain, one per writer (ADR-0070 clause 5)
 
@@ -78,17 +83,18 @@ breaks — a record whose content does not match its digest (changed), one
 whose number skips (deleted before it), one out of its order, or one whose
 `previous` is not the digest of the record before it — or that it is whole.
 
-**In `audit.toml`** the file sink forms the chain as it appends: holding
-`audit.lock`, a file beside it, it reads where the writer's chain stands —
-what was appended since this process last looked, or, for a writer it has
-not met, the file read back from its end to that writer's last record, so a
-program started again goes on from its last record — and appends the record
-after it in one write (`file_chain`). A record is said written only once it
-is on the disk: the file's one writer in a process appends every record
+**In `audit.toml`** the file sink, `xmip-core-audit-file`, forms the chain
+as it appends: holding `audit.lock`, a file beside it, it reads where the
+writer's chain stands — what was appended since this process last looked,
+or, for a writer it has not met, the file read back from its end to that
+writer's last record, so a program started again goes on from its last
+record — and appends the record after it in one write, through
+`AuditRecord::chained`; a table a write left unfinished it seals apart
+first, with `audit_fragment::sealing`. A record is said written only once
+it is on the disk: the file's one writer in a process appends every record
 waiting in one write and one durable flush, so records handed over
 together share it, and reads the file only where this process did not
-leave it as it stands (`file_sink::writer`; ADR-0062, amendment
-2026-11-13). The canonical form is the record's
+leave it as it stands (ADR-0062, amendment 2026-11-13). The canonical form is the record's
 `[[record]]` table exactly as written, its blank line with it, without the
 one line `digest = "…"`; `writer`, `position` and `previous` stand after
 `audit_id`, and `digest` after them. **In Xmip Storage** a node's records
@@ -151,34 +157,35 @@ that, and the Audit view, `xmip audit` and `Get-XmipAudit` are that call.
 
 ## When audit cannot persist: the operating system's log
 
-When the sink refuses a record, or there is none, `Audit` hands it to
-`operating_system_log::OperatingSystemLog`, opening with the sentence that
-says why. This is the fallback and not a second sink, and the rule is written
-here once:
+When the sink refuses a record, or there is none, `Audit` writes it to the
+operating system's log, opening with the sentence that says why. This is
+the fallback and not a second sink, and the rule is written here once
+(`emit`). Which log, this crate does not know: the seam is
+`operating_system_log::OperatingSystemLog`, and the program that runs hands
+its platform's log in once, as it starts (`operating_system_log::hand`; the
+first one handed stands). A program that handed none has its record refused
+in words. A .NET program reaches the same log through the runtime's library,
+`xmip_operate.h` section 9, never a writer of its own.
 
-- **Windows**: the Application log, event 1000, under the source `Xmip`
-  (`src/windows_event_log.rs`). Registering the source needs elevation once —
-  `Install-XmipPrerequisite -Install`, elevated, does it; until then an entry
-  goes under `.NET Runtime` and says so. The source's name is the ABI
-  header's `XMIP_EVENT_SOURCE`. The Event Log's interface is C, called
-  through `windows-sys` from that one file, the only one in this crate that
-  may hold unsafe code (ADR-0050, amendment 2026-09-25;
-  `test/Unsafe.Test.ps1` holds the list).
-- **Linux**: one datagram to `/dev/log` (`src/syslog.rs`) — the journal's own
-  socket on a systemd machine (`journalctl -t xmip`), a syslog daemon's
-  elsewhere.
-- **macOS**: the same datagram to `/var/run/syslog`, which the unified log
-  reads.
+Each log is a technology of this capability in a repository of its own,
+mounted beside this crate, and a capability does not depend on its
+technologies:
 
-Each is a technology under this capability in `architecture.toml`
-(`file`, `syslog`, `windows-event-log`), held here rather than in a
-repository of its own because the fallback is the capability's rule and a
-capability does not depend on its technologies.
+- **Windows**: `xmip-core-audit-windows-event-log` (`windows-event-log/`),
+  the Application log, event 1000, under the source `Xmip`, the ABI
+  header's `XMIP_EVENT_SOURCE`; under `.NET Runtime`, saying so, until the
+  source is registered.
+- **Linux and macOS**: `xmip-core-audit-syslog` (`syslog/`), one datagram to
+  the local syslog — the journal's own socket on a systemd machine
+  (`journalctl -t xmip`), the unified log's on macOS.
 
-No test writes to the machine's log: the fallback is tested with a stand-in,
-and the two tests that do write — one entry under `Xmip`, one under
-`.NET Runtime` on Windows, one datagram to syslog elsewhere — are ignored by
-default and run with `cargo test -- --ignored` to prove it.
+The sink every Xmip program hands in is the third technology,
+`xmip-core-audit-file` (`file/`). This crate calls no C interface and
+forbids unsafe code.
+
+No test writes to the machine's log: the fallback is tested with a
+stand-in, and each log's own tests that write are ignored by default and
+run with `cargo test -- --ignored` in its repository to prove it.
 
 `doc/architecture/observability-model.md` sections 2, 3, 5, 9 and 10 govern
 it, and the record model it owns is `doc/audit-record.md` beside this file.

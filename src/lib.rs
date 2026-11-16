@@ -10,13 +10,18 @@
 //! ([`operating_system_log::OperatingSystemLog`]). Failures are always
 //! audited and failure records are always persisted; that is not policy.
 //!
-//! A program audits through [`program_audit::ProgramAudit`], whose default
-//! sink is [`file_sink::FileSink`]: the directory it is told, else
-//! `XMIP_AUDIT_DIRECTORY`, else none and the operating system's log. A
+//! Which sink and which log, this crate does not know: each is a technology
+//! of this capability in a repository of its own — `xmip-core-audit-file`,
+//! `xmip-core-audit-syslog`, `xmip-core-audit-windows-event-log` — and a
+//! capability does not depend on its technologies. The program that runs
+//! hands them in as it starts, through the two seams: a sink to its
+//! [`program_audit::ProgramAudit`], every Xmip program's being the file
+//! sink, and its platform's log to [`operating_system_log::hand`]. A
 //! record made where the caller must not wait for a disk is handed to the
 //! [`keeper`], one thread that keeps records in order.
 //!
-//! A reader reads the same file back: [`audit_query::AuditQuery`] is what
+//! A reader reads the file sink's file back, in the directory one rule
+//! decides ([`audit_store::directory`]): [`audit_query::AuditQuery`] is what
 //! every surface asks of it — who, the scope pattern, severity, action and
 //! time, sorted by any column and paged (ADR-0062, amendment 2026-09-29) —
 //! [`audit_store::ask`] answers it a page at a time from the file through
@@ -47,18 +52,11 @@ pub mod audit_store;
 mod audit_tally;
 pub mod emit;
 pub mod execution_scope;
-mod file_chain;
-pub mod file_sink;
 pub mod keeper;
 pub mod operating_system_log;
 pub mod origin;
 pub mod program_audit;
 pub mod redaction;
-
-#[cfg(unix)]
-mod syslog;
-#[cfg(windows)]
-mod windows_event_log;
 
 use audit_record::AuditRecord;
 use execution_scope::ExecutionScope;
