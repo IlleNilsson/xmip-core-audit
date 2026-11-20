@@ -235,16 +235,13 @@ mod tests {
     use super::*;
     use crate::audit_block::BLOCK;
     use crate::audit_column::Column;
+    use file::temporary::Folder;
     use std::collections::BTreeMap;
     use std::fs::{self, OpenOptions};
     use std::io::Write;
 
-    fn scratch(name: &str) -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("xmip-audit-store-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).expect("made");
-        directory
+    fn scratch(name: &str) -> Folder {
+        Folder::new(&format!("audit-store-{name}"))
     }
 
     /// The program `probe`'s record of `action`, from `location`, appended
@@ -357,7 +354,7 @@ mod tests {
     fn what_was_appended_since_is_read_and_what_was_read_is_kept() {
         let directory = scratch("grows");
         let at = configure::fixture::test_cluster().node_scope(0);
-        let file = stated(Some(&directory)).expect("a file");
+        let file = stated(Some(&*directory)).expect("a file");
         let oldest = query(&[("order", "ascending")]);
 
         start(&file, "one", Some(&at));
@@ -368,14 +365,12 @@ mod tests {
         let page = ask(&file, &oldest).expect("read");
         assert_eq!(actions(&page), ["one", "two", "three"]);
         assert_eq!(page.records[2].location.as_deref(), Some(at.as_str()));
-
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn a_file_that_got_shorter_is_read_again_from_its_start() {
         let directory = scratch("replaced");
-        let file = stated(Some(&directory)).expect("a file");
+        let file = stated(Some(&*directory)).expect("a file");
         start(&file, "one", None);
         start(&file, "two", None);
         assert_eq!(ask(&file, &query(&[])).expect("read").read, 2);
@@ -385,7 +380,6 @@ mod tests {
         let page = ask(&file, &query(&[])).expect("read");
 
         assert_eq!(actions(&page), ["again"]);
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -425,7 +419,6 @@ mod tests {
                 assert_eq!(scanned.records, sorted_whole(&whole, &asked), "{asked:?}");
             }
         }
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -457,6 +450,5 @@ mod tests {
             !kinds.tallied && kinds.held() == 0,
             "the kinds alone outgrew it"
         );
-        let _ = fs::remove_dir_all(&directory);
     }
 }
