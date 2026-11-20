@@ -14,10 +14,11 @@
 
 mod history;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use file::temporary::Folder;
 use history::history;
 use xcore::fastest::FIVE;
 use xcore::latency::spread;
@@ -56,12 +57,8 @@ fn handing_over_does_not_wait_for_the_keeping() {
     );
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let directory =
-        std::env::temp_dir().join(format!("xmip-audit-store-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory).expect("made");
-    directory
+fn scratch(name: &str) -> Folder {
+    Folder::new(&format!("audit-store-{name}"))
 }
 
 fn query(pairs: &[(&str, &str)]) -> AuditQuery {
@@ -104,5 +101,4 @@ fn a_page_takes_as_long_whatever_the_history_behind_it() {
     }
     println!("the indexes of 43,008 records hold {} bytes", held());
     assert!(held() <= BUDGET);
-    let _ = std::fs::remove_dir_all(&directory);
 }

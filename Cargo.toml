@@ -44,6 +44,8 @@ configure = { package = "xmip-core-configure", git = "https://github.com/IlleNil
 # The timing program's fastest of five, said as every timing program says
 # it (`xcore::latency::spread`).
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7", "test-support"] }
+# A test's own temporary folder (`file::temporary`); for the tests only.
+file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
 
 [lints.rust]
 # forbid, not deny: audit calls no C interface. The operating system's log
