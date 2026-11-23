@@ -27,7 +27,7 @@ policy says.
 ## Every Xmip program audits (ADR-0062)
 
 Not the runtime alone: the web and desktop monitors, the command line, both
-PowerShell modules, the Essentials' processes, the language server and the
+PowerShell modules, the System Tests' processes, the language server and the
 estate's own tooling record what they start and stop, every act an operator
 takes through them and every failure. A Rust program holds a
 `program_audit::ProgramAudit` (`record`, `failed`, `watch_panics`); a .NET
@@ -114,7 +114,7 @@ write finished. `xmip audit --verify`,
 
 A process that belongs somewhere in Xmip says where: `ProgramAudit::locate`
 takes the location it declares (ADR-0053 clause 3) — `xmip:///CL1` for a
-Essentials roll or its cluster, `xmip:///CL1/node/RX1` for a node or the Xmip
+System Tests roll or its cluster, `xmip:///CL1/node/RX1` for a node or the Xmip
 Service — and every record from then on, by any clone and the panic hook's,
 carries it as `location`. A program that serves no scope — a cmdlet, the web
 host, the command line — declares none, and a reader shows its records under

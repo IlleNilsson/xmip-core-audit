@@ -319,7 +319,7 @@ mod tests {
     fn program() -> String {
         let cluster = test_cluster();
         format!(
-            "xmip-essentials-{}-node-{}",
+            "xmip-system-test-{}-node-{}",
             cluster.name,
             cluster.node(0).name
         )

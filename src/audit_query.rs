@@ -371,9 +371,9 @@ mod tests {
         }
     }
 
-    /// The name a essentials program of `cluster` runs as (ADR-0053).
+    /// The name a System Tests program of `cluster` runs as (ADR-0053).
     fn program(cluster: &str, rest: &str) -> String {
-        format!("xmip-essentials-{cluster}-{rest}")
+        format!("xmip-system-test-{cluster}-{rest}")
     }
 
     fn store() -> Vec<AuditEntry> {
