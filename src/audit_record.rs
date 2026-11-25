@@ -22,6 +22,18 @@ use crate::origin::Origin;
 /// its canonical form leaves out.
 pub const DIGEST_KEY: &str = "digest";
 
+/// The line a record of `writer`'s audit chain names its writer by, as
+/// [`AuditRecord::chained`] writes it: what the file sink finds a writer's
+/// last record by, reading back from the end of its file.
+#[must_use]
+pub fn writer_line(writer: &str) -> String {
+    let mut out = String::with_capacity(writer.len() + 12);
+    out.push_str("writer = ");
+    quote_into(&mut out, writer);
+    out.push('\n');
+    out
+}
+
 /// What an audit record says beside its own fields, its
 /// `[record.properties]`: each name with its value, said in the order of
 /// their names, so a record is written the same however it was made — its
@@ -105,7 +117,7 @@ impl<P: Properties> AuditRecord<P> {
         };
         field(&mut out, "audit_id", &self.audit_id);
         if let Some((writer, position, previous)) = chain {
-            field(&mut out, "writer", &writer);
+            out.push_str(&writer_line(writer));
             field(&mut out, "position", &position);
             field(&mut out, "previous", &written(previous));
         }
@@ -260,6 +272,19 @@ mod tests {
                 .contains("[record.properties]"),
             "nothing said, no table"
         );
+    }
+
+    /// The line a writer is found by is the line its records carry, quoted
+    /// as TOML, and on a line of its own.
+    #[test]
+    fn a_chained_record_names_its_writer_by_the_writer_line() {
+        for writer in ["edge-01", "far end \"b\"\\c"] {
+            let (table, _) = record().chained(writer, 1, &[0; 32]);
+            let line = writer_line(writer);
+            assert!(table.contains(&format!("\n{line}")), "{table}");
+            assert_eq!(table.matches(line.as_str()).count(), 1, "{table}");
+        }
+        assert_eq!(writer_line("a \"b\""), "writer = \"a \\\"b\\\"\"\n");
     }
 
     #[test]
