@@ -63,10 +63,8 @@ impl<'query> Tally<'query> {
                 warnings: 0,
                 errors: 0,
                 latest: String::new(),
-                hidden: false,
             });
         group.count += count;
-        group.hidden |= entry.hidden;
         if entry.severity == Severity::Warning.word() {
             group.warnings += count;
         }

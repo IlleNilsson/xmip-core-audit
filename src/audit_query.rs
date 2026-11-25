@@ -20,7 +20,6 @@ use std::cmp::Ordering;
 use codec::civil::read_rfc3339;
 use node::Scope;
 use node::wildcard::matches;
-use observe::run::shown;
 
 use xcore::Severity;
 
@@ -60,10 +59,6 @@ pub struct AuditQuery {
     pub descending: bool,
     pub offset: usize,
     pub limit: usize,
-    /// Whether the records of a run that declared itself hidden are read
-    /// too; left out unless asked (ADR-0028, amendment 2026-09-30), by the
-    /// one rule, [`observe::run::shown`].
-    pub including_hidden: bool,
     /// Whether the audit chain of every writer of the records it matched
     /// is walked whole and said (ADR-0070 clause 5): the `verify` act.
     pub verify: bool,
@@ -72,10 +67,6 @@ pub struct AuditQuery {
 /// The words the `verify` key takes: walk no chain, the default, or walk
 /// them.
 pub const VERIFY: [&str; 2] = ["no", "yes"];
-
-/// The words the `hidden` key takes: leave what is hidden out, the default,
-/// or include it.
-pub const HIDDEN: [&str; 2] = ["exclude", "include"];
 
 /// A group one step down the drill from where a query stands.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -89,9 +80,6 @@ pub struct AuditGroup {
     pub errors: usize,
     /// The newest record's time, as written.
     pub latest: String,
-    /// Some record in the group came from a hidden run: a reader that
-    /// included what is hidden marks the group as test.
-    pub hidden: bool,
 }
 
 /// What a query found.
@@ -120,8 +108,7 @@ impl AuditQuery {
     /// word), `action`, `from` and `to` (RFC 3339, or a date and a time with
     /// no zone, read as UTC), `sort` (a [`Column`]'s word), `order`
     /// (`ascending` or `descending`), `offset` and `limit` (at most
-    /// [`MOST`]), and `hidden` ([`HIDDEN`]: `include` reads the records of
-    /// a run that declared itself hidden too), and `verify` ([`VERIFY`]:
+    /// [`MOST`]), and `verify` ([`VERIFY`]:
     /// `yes` walks the audit chain of each writer of the records matched).
     /// An empty value is no filter.
     ///
@@ -165,13 +152,12 @@ impl AuditQuery {
                 }
                 "offset" => query.offset = number(key, value)?,
                 "limit" => query.limit = number(key, value)?.min(MOST),
-                "hidden" => query.including_hidden = word(key, value, &HIDDEN)? == "include",
                 "verify" => query.verify = word(key, value, &VERIFY)? == "yes",
                 other => {
                     return Err(format!(
                         "REFUSED: an audit read takes pattern, location, host, program, record, \
-                         severity, action, from, to, sort, order, offset, limit, hidden and \
-                         verify, not {other:?}."
+                         severity, action, from, to, sort, order, offset, limit and verify, \
+                         not {other:?}."
                     ));
                 }
             }
@@ -216,13 +202,10 @@ impl AuditQuery {
         self.from.is_none_or(|from| at_nanos >= from) && self.to.is_none_or(|to| at_nanos <= to)
     }
 
-    /// Whether the record is where the query stands: shown, who, and
-    /// within every filter but the action.
+    /// Whether the record is where the query stands: who, and within every
+    /// filter but the action.
     pub(crate) fn standing(&self, entry: &AuditEntry) -> bool {
-        shown(entry.hidden, self.including_hidden)
-            && self.who(entry)
-            && self.untimed(entry)
-            && self.timed(entry.at_nanos)
+        self.who(entry) && self.untimed(entry) && self.timed(entry.at_nanos)
     }
 
     /// Whether the record is of the action asked, where one is.
@@ -550,58 +533,6 @@ mod tests {
         assert_eq!(page.read, 7);
         let most = AuditQuery::from_pairs([("limit", "99999")]).expect("a query");
         assert_eq!(most.limit, MOST);
-    }
-
-    #[test]
-    fn a_hidden_run_is_left_out_until_included_and_a_name_hides_nothing() {
-        let names = Names::read();
-        // A cluster of its own for the run, beside every cluster the store has.
-        let run = format!("{}-run", names.other);
-        let second = format!("xmip:///{run}");
-        let mut entries = store();
-        let mut hidden = entry(
-            "8",
-            8,
-            Some(&format!("{second}/node/{}", names.node)),
-            &program(&run, &format!("node-{}", names.node)),
-        );
-        hidden.hidden = true;
-        entries.push(hidden);
-        // Its roll declared nothing, and is shown like any other: a name hides
-        // nothing.
-        entries.push(entry("9", 9, Some(&second), &program(&run, "roll")));
-        let ask = |pairs: &[(&str, &str)]| {
-            AuditQuery::from_pairs(pairs.iter().copied())
-                .expect("a query")
-                .ask(&entries)
-        };
-
-        let left_out = ask(&[]);
-        assert_eq!((left_out.read, left_out.matched), (8, 8));
-        assert!(!ids(&left_out).contains(&"8"));
-        assert!(
-            ids(&ask(&[("record", "8")])).is_empty(),
-            "not even by its id"
-        );
-        let shown = ask(&[("location", &second)]);
-        assert_eq!(ids(&shown), ["9"]);
-
-        let included = ask(&[("hidden", "include")]);
-        assert_eq!(included.matched, 9);
-        let groups: Vec<(&str, bool)> = included
-            .groups
-            .iter()
-            .map(|group| (group.who.as_str(), group.hidden))
-            .collect();
-        assert!(groups.contains(&(second.as_str(), true)), "{groups:?}");
-        let root = names.root();
-        assert!(groups.contains(&(root.as_str(), false)), "{groups:?}");
-        assert_eq!(ask(&[("hidden", "exclude")]).matched, 8);
-        assert!(
-            AuditQuery::from_pairs([("hidden", "yes")])
-                .expect_err("refused")
-                .starts_with("REFUSED")
-        );
     }
 
     #[test]

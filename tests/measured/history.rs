@@ -42,7 +42,6 @@ pub fn history(file: &Path, count: u64) {
                 host: "edge-01".to_string(),
                 process: 7,
                 location: locations[place].clone(),
-                hidden: place == 2 && next(9) == 0,
             },
             scope: None,
             action: ["start", "stop", "publish", "receive"][next(4)].to_string(),

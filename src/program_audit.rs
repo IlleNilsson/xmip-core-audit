@@ -13,7 +13,6 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use xcore::{AuditId, Clock, ExecutionPhase, IdGenerator, Severity, SystemClock, UuidV7Generator};
@@ -38,9 +37,6 @@ pub struct ProgramAudit {
     /// the panic hook's among them, so a record made anywhere after the
     /// declaration carries it.
     location: Arc<OnceLock<String>>,
-    /// Whether the process belongs to a run that declared itself hidden;
-    /// shared by every clone as the location is.
-    hidden: Arc<AtomicBool>,
     /// The sink the program handed in, shared by every clone.
     sink: Option<Arc<dyn AuditSink>>,
 }
@@ -51,7 +47,6 @@ impl fmt::Debug for ProgramAudit {
             .debug_struct("ProgramAudit")
             .field("origin", &self.origin)
             .field("location", &self.location)
-            .field("hidden", &self.hidden)
             .field("sink", &self.sink.is_some())
             .finish()
     }
@@ -66,7 +61,6 @@ impl ProgramAudit {
         Self {
             origin: Origin::here(program),
             location: Arc::new(OnceLock::new()),
-            hidden: Arc::new(AtomicBool::new(false)),
             sink: sink.map(|sink| Arc::new(sink) as Arc<dyn AuditSink>),
         }
     }
@@ -90,23 +84,8 @@ impl ProgramAudit {
         self.location.get().map(String::as_str)
     }
 
-    /// Say that the process belongs to a run that declared itself hidden —
-    /// an assistant's test run (ADR-0028, amendment 2026-09-30) — on every
-    /// record this audit and each of its clones makes from now on, so a
-    /// reader leaves the records out with the run, by what the process
-    /// declared and never by its name. A declaration is not taken back.
-    pub fn hide(&self) {
-        self.hidden.store(true, Ordering::Relaxed);
-    }
-
-    /// Whether every record from now on says the process is hidden.
-    #[must_use]
-    pub fn hidden(&self) -> bool {
-        self.hidden.load(Ordering::Relaxed)
-    }
-
     /// Where a record made now says it came from: the program, its host and
-    /// process, the location it declared and whether it is hidden. A record
+    /// process and the location it declared. A record
     /// this audit does not keep itself — one written to Xmip Storage, where
     /// a node's Publication is audited (ADR-0062, amendment 2026-10-01) —
     /// carries it, so a reader groups it with the program's own.
@@ -114,7 +93,6 @@ impl ProgramAudit {
     pub fn origin(&self) -> Origin {
         Origin {
             location: self.location.get().cloned(),
-            hidden: self.hidden(),
             ..self.origin.clone()
         }
     }
@@ -271,20 +249,5 @@ mod tests {
         let blank = ProgramAudit::new("probe", None::<Kept>);
         blank.locate("  ");
         assert_eq!(blank.location(), None);
-    }
-
-    #[test]
-    fn a_hidden_program_says_so_on_every_record_its_clones_make_too() {
-        let kept = Kept::default();
-        let audit = ProgramAudit::new("probe", Some(kept.clone()));
-        let earlier = audit.clone();
-        audit.failed("before", "not hidden yet").expect("recorded");
-        audit.hide();
-
-        assert!(earlier.hidden(), "a clone shares the declaration");
-        earlier.failed("after", "hidden").expect("recorded");
-
-        let text = kept.text();
-        assert_eq!(text.matches("hidden = \"true\"").count(), 1, "{text}");
     }
 }

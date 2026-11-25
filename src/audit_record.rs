@@ -118,9 +118,6 @@ impl<P: Properties> AuditRecord<P> {
         if let Some(location) = &self.origin.location {
             field(&mut out, "location", location);
         }
-        if self.origin.hidden {
-            field(&mut out, "hidden", &"true");
-        }
         field(&mut out, "action", &self.action);
         field(&mut out, "phase", &self.phase.word());
         field(&mut out, "severity", &self.severity.word());
@@ -182,9 +179,6 @@ impl<P: Properties> AuditRecord<P> {
         if let Some(location) = &self.origin.location {
             let _ = write!(out, " at {location}");
         }
-        if self.origin.hidden {
-            out.push_str(", hidden");
-        }
         let _ = write!(
             out,
             ", audit {}, {})",
@@ -226,7 +220,6 @@ mod tests {
                 host: "edge-01".to_string(),
                 process: 42,
                 location: None,
-                hidden: false,
             },
             scope: None,
             action: "unhandled".to_string(),
@@ -335,28 +328,6 @@ mod tests {
             probe.toml()
         );
         assert!(probe.line().contains(&format!("on edge-01 at {at},")));
-    }
-
-    #[test]
-    fn a_hidden_process_says_so_after_its_location_and_nothing_else_does() {
-        let mut probe = record();
-        assert!(!probe.toml().contains("hidden"), "none declared");
-        let root = configure::fixture::test_cluster().scope();
-        probe.origin.location = Some(root.clone());
-        probe.origin.hidden = true;
-
-        assert!(
-            probe
-                .toml()
-                .contains(&format!("location = \"{root}\"\nhidden = \"true\"\n")),
-            "{}",
-            probe.toml()
-        );
-        assert!(
-            probe.line().contains(&format!("at {root}, hidden,")),
-            "{}",
-            probe.line()
-        );
     }
 
     /// The bytes of a chain written before its rule moved below the audit

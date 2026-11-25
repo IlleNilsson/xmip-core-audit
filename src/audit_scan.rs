@@ -44,10 +44,7 @@ impl<'query> Scan<'query> {
         }
     }
 
-    /// Read the next record of the log. What a hidden run recorded is not
-    /// there for a query that did not include it: not counted, not grouped,
-    /// not found by its identifier — and walked in its writer's chain all
-    /// the same, since one left out would read as deleted.
+    /// Read the next record of the log.
     pub(crate) fn offer(&mut self, entry: &AuditEntry) {
         let place = self.seen;
         self.seen += 1;
@@ -58,9 +55,6 @@ impl<'query> Scan<'query> {
                 .entry(writer.to_string())
                 .or_insert_with(|| Walker::new(writer))
                 .step(link);
-        }
-        if !observe::run::shown(entry.hidden, self.query.including_hidden) {
-            return;
         }
         self.tally.read += 1;
 
@@ -160,9 +154,7 @@ fn ordered(
 }
 
 impl AuditQuery {
-    /// Ask `entries`, in the order the log holds them. What a hidden run
-    /// recorded is not there for a query that did not include it: not
-    /// counted, not grouped, not found by its identifier.
+    /// Ask `entries`, in the order the log holds them.
     #[must_use]
     pub fn ask<Entry: Borrow<AuditEntry>>(
         &self,

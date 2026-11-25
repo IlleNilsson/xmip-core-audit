@@ -4,9 +4,9 @@
 //! (open problem 38: an audit query reads a page at a time from the file).
 //!
 //! A kind is everything a query asks a record by except its time and its
-//! identifier — its location, host, program, action, phase, severity and
-//! whether its run was hidden — so a query counts, groups and finds the
-//! blocks its page is in from the index alone, and reads only those blocks.
+//! identifier — its location, host, program, action, phase and severity —
+//! so a query counts, groups and finds the blocks its page is in from the
+//! index alone, and reads only those blocks.
 //! The kinds of a log are few: its programs and their acts. Each kind's
 //! records are counted over the whole file too, so a query that names no
 //! time counts without walking the blocks, and the blocks are kept in the
@@ -193,7 +193,6 @@ impl Index {
             action: entry.action.clone(),
             phase: entry.phase.clone(),
             severity: entry.severity.clone(),
-            hidden: entry.hidden,
             ..AuditEntry::default()
         };
         self.held += kind_held(&made);
@@ -214,7 +213,6 @@ impl Index {
             &entry.action,
             &entry.phase,
             &entry.severity,
-            entry.hidden,
         ))
     }
 
@@ -326,7 +324,6 @@ fn same_kind(kind: &AuditEntry, entry: &AuditEntry) -> bool {
         && kind.action == entry.action
         && kind.phase == entry.phase
         && kind.severity == entry.severity
-        && kind.hidden == entry.hidden
 }
 
 fn kind_held(kind: &AuditEntry) -> usize {

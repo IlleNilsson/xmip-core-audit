@@ -103,9 +103,8 @@ its own that holds the record's row and its Streams' records
 (`persist::storage::chain_digest`); the walk is this one.
 
 Asked `verify` (`yes`), `AuditQuery` walks the chain of each writer of the
-records it matched over every record in the file, a hidden run's among
-them, read from the file's bytes as they are now, a piece at a time
-(`audit_store::each`), holding where each chain stands and never the file;
+records it matched over every record in the file, read from the file's
+bytes as they are now, a piece at a time (`audit_store::each`), holding where each chain stands and never the file;
 the page's `chains` carry each verdict and its `fragments` the bytes no
 write finished. `xmip audit --verify`,
 `Get-XmipAudit -Verify` and the Audit view's *verify chains* are that query.

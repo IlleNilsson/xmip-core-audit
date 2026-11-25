@@ -30,11 +30,6 @@ pub struct Origin {
     /// serves no scope — a cmdlet, a web host — whose records a reader shows
     /// under their host.
     pub location: Option<String>,
-    /// The process belongs to a run that declared itself hidden (ADR-0028,
-    /// amendment 2026-09-30): an operator's view leaves its records out
-    /// until asked to include what is hidden, by the one rule
-    /// `observe::run::shown`. False for everything else.
-    pub hidden: bool,
 }
 
 impl Origin {
@@ -46,7 +41,6 @@ impl Origin {
             host: host_name(),
             process: std::process::id(),
             location: None,
-            hidden: false,
         }
     }
 

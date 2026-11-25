@@ -15,30 +15,23 @@ use crate::audit_index::Index;
 const NEAR: i128 = 60 * 1_000_000_000;
 
 impl Index {
-    /// The first shown record with the identifier `record`: looked for
-    /// first in the blocks written about when a version 7 identifier was
-    /// minted, then in the rest, each in the order of the file. `shown`
-    /// says of each kind whether the query reads it.
+    /// The first record with the identifier `record`: looked for first in
+    /// the blocks written about when a version 7 identifier was minted, then
+    /// in the rest, each in the order of the file.
     ///
     /// # Errors
     /// A block could not be read, with the reason.
-    pub(crate) fn find(
-        &self,
-        opened: &mut File,
-        record: &str,
-        shown: &[bool],
-    ) -> std::io::Result<Vec<AuditEntry>> {
+    pub(crate) fn find(&self, opened: &mut File, record: &str) -> std::io::Result<Vec<AuditEntry>> {
         let minted = minted(record);
         let near = |block: &Block| {
             minted.is_some_and(|at| block.earliest - NEAR <= at && at <= block.latest + NEAR)
         };
-        let holds = |block: &Block| block.tally.iter().any(|count| shown[count.kind as usize]);
         let nearer = self.blocks.iter().filter(|block| near(block));
         let rest = self.blocks.iter().filter(|block| !near(block));
         let mut found = Vec::new();
-        for block in nearer.chain(rest).filter(|block| holds(block)) {
+        for block in nearer.chain(rest) {
             self.each(opened, block, |entry| {
-                let seen = self.kind_of(entry).is_some_and(|kind| shown[kind as usize]);
+                let seen = self.kind_of(entry).is_some();
                 if found.is_empty() && seen && entry.audit_id == record {
                     found.push(entry.clone());
                 }

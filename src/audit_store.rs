@@ -285,8 +285,7 @@ mod tests {
 
     /// The questions the equality is held to: every column either way,
     /// pages at the start, deep and past the end, each filter, a time
-    /// window, what is hidden, one record, one that is not there and an
-    /// empty page.
+    /// window, one record, one that is not there and an empty page.
     fn questions(whole: &[AuditEntry]) -> Vec<AuditQuery> {
         let cluster = configure::fixture::test_cluster();
         let (scope, node) = (cluster.scope(), cluster.node_scope(0));
@@ -316,7 +315,6 @@ mod tests {
             ],
             &[("from", from), ("to", to), ("order", "ascending")],
             &[("from", from), ("sort", "program"), ("offset", "300")],
-            &[("hidden", "include"), ("sort", "severity")],
             &[("record", record)],
             &[("record", "0192d6c1-0000-7000-8000-000000000000")],
             &[("limit", "0")],

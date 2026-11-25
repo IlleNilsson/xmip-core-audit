@@ -21,8 +21,6 @@ use std::collections::BinaryHeap;
 use std::fs::File;
 use std::path::Path;
 
-use observe::run::shown;
-
 use crate::AuditError;
 use crate::audit_block::Block;
 use crate::audit_column::Column;
@@ -33,7 +31,7 @@ use crate::audit_tally::Tally;
 
 /// What a query decides of each kind.
 struct Judged {
-    /// Shown, who the query stands at and within its pattern and severity.
+    /// Who the query stands at, within its pattern and severity.
     standing: Vec<bool>,
     /// Of the action asked, where one is.
     acted: Vec<bool>,
@@ -74,18 +72,10 @@ impl Index {
             }
             Err(error) => return Err(refused(error)),
         };
-        let shown: Vec<bool> = self
-            .kinds
-            .iter()
-            .map(|kind| shown(kind.hidden, query.including_hidden))
-            .collect();
-        let read = (0..self.kinds.len())
-            .filter(|kind| shown[*kind])
-            .map(|kind| self.totals[kind].records)
-            .sum();
+        let read = self.totals.iter().map(|total| total.records).sum();
 
         if let Some(record) = &query.record {
-            let found = self.find(&mut opened, record, &shown).map_err(refused)?;
+            let found = self.find(&mut opened, record).map_err(refused)?;
             return Ok(Some(AuditPage {
                 read,
                 matched: found.len(),
@@ -98,7 +88,7 @@ impl Index {
             standing: (0..self.kinds.len())
                 .map(|kind| {
                     let made = &self.kinds[kind];
-                    shown[kind] && query.who(made) && query.untimed(made)
+                    query.who(made) && query.untimed(made)
                 })
                 .collect(),
             acted: self.kinds.iter().map(|kind| query.acted(kind)).collect(),
