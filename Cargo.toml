@@ -1,8 +1,8 @@
 [package]
 name = "xmip-core-audit"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 repository = "https://github.com/IlleNilsson/xmip-core-audit"
 description = "Configurable audit lifecycle records for every Xmip action and every Xmip program: the sink seam, the fallback to the operating system's log the program hands in when audit cannot persist (ADR-0062), and the audit file's one reader."
 
@@ -40,19 +40,5 @@ xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core
 # A test's own temporary folder (`file::temporary`); for the tests only.
 file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
 
-[lints.rust]
-# forbid, not deny: audit calls no C interface. The operating system's log
-# is a technology's, handed in (xmip-core-audit-windows-event-log keeps the
-# Event Log's calls).
-unsafe_code = "forbid"
-
-[lints.clippy]
-# Warned, never denied. doc/governance/rust-style.md section 3.
-too_many_lines = "warn"
-
-# The ones that catch real defects rather than taste.
-pedantic = { level = "warn", priority = -1 }
-missing_errors_doc = "warn"
-missing_panics_doc = "warn"
-unwrap_used = "warn"
-expect_used = "allow"
+[lints]
+workspace = true
