@@ -12,15 +12,15 @@ description = "Configurable audit lifecycle records for every Xmip action and ev
 # the one before it in its writer's audit chain by xmip-core's one rule,
 # over the SHA-256 of its canonical form (xcore::audit_chain, ADR-0070
 # clause 5).
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7"] }
+xcore = { workspace = true, features = ["uuid-v7"] }
 # The estate's encoding primitives: a record is written as TOML (quoted by
 # codec's one quoting) and stamped by the civil calendar.
-codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+codec = { workspace = true }
 
 # The one scope rule and the one wildcard: a reader asks who a record is by
 # the location its process declared, and filters by the pattern every
 # surface filters with (ADR-0062, amendment 2026-09-29).
-node = { package = "xmip-core-node", git = "https://github.com/IlleNilsson/xmip-core-node", branch = "main" }
+node = { workspace = true }
 
 # The module's timing program (doc/governance/rust-style.md section 5c): a
 # plain cargo test leaves it out, and the landing runs it after every other
@@ -32,13 +32,13 @@ test = false
 
 [dev-dependencies]
 # The test cluster's names, from its `cluster.xmip` (`configure::fixture`).
-configure = { package = "xmip-core-configure", git = "https://github.com/IlleNilsson/xmip-core-configure", branch = "main", features = ["test-support"] }
+configure = { workspace = true, features = ["test-support"] }
 
 # The timing program's fastest of five, said as every timing program says
 # it (`xcore::latency::spread`).
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["uuid-v7", "test-support"] }
+xcore = { workspace = true, features = ["uuid-v7", "test-support"] }
 # A test's own temporary folder (`file::temporary`); for the tests only.
-file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
+file = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
